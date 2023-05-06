@@ -22,6 +22,7 @@ class Missions(Base):
     description = Column(String)
     reward = Column(Integer)
     difficulty = Column(String)
+    faction = Column(String)
 
 
 class Bounties(Base):
@@ -72,15 +73,15 @@ def run_discord_bot():
             title="Help Menu"
         )
         embed.add_field(name="Add mission",
-                        value="`Only available to @Game Master`\n Run /add_mission (preferred) or >add_mission to add a new mission. If running >add_mission, the command takes in four inputs separated by spaces (title, description, reward, difficulty- Very Easy, Easy, Medium, Hard, Very Hard, Expert).\n\n Example Command: >add_mission 'Destroy Rebel Base' 'A big rebel base on Kuwait' '200' 'Easy'\n")
+                        value="`Only available to @Game Master`\n Run /add_mission (preferred) or >add_mission to add a new mission. If running >add_mission, the command takes in five inputs separated by spaces (title, description, reward, difficulty- Very Easy, Easy, Medium, Hard, Very Hard, Expert, faction- Rogue, Imperial, Rebel, Mandalorian).\n\n Example Command: >add_mission 'Destroy Rebel Base' 'A big rebel base on Kuwait' '200' 'Easy' 'Imperial'\n")
         embed.add_field(name="Add bounty",
                         value="Run /add_bounty (preferred) or >add_bounty to add a new bounty. If running >add_mission, the command takes in four inputs separated by spaces (title, description, reward.\n\n Example Command: >add_bounty 'Jabba' 'I don't like him. I heard he's chilling in his palace on Tatooine.' '300'\n")
         embed.add_field(name="Delete mission",
-                        value="`Only available to @Game Master`\n Run /delete_mission (preferred) or >delete_mission to delete a mission. If running >delete_mission, the command takes in one input (mission_id).\n\n Example Command: >delete_mission 2\n")
+                        value="`Only available to @Game Master`\n Run /delete_mission (preferred) or >delete_mission to delete a mission. If running >delete_mission, the command takes in two inputs (mission_id, faction- Rogue, Imperial, Rebel, Mandalorian).\n\n Example Command: >delete_mission 2 'Mandalorian'\n")
         embed.add_field(name="Delete bounty",
                         value="`Only available to @Game Master`\n Run /delete_bounty (preferred) or >delete_bounty to delete a bounty. If running >delete_bounty, the command takes in one input (bounty_id).\n\n Example Command: >delete_bounty 2\n")
         embed.add_field(name="Show missions",
-                        value="Run /all_missions (preferred) or >all_missions to show available missions.\n")
+                        value="Run /all_missions (preferred) or >all_missions to show available missions for faction specified (Rogue, Imperial, Rebel, Mandalorian).\n\n Example Command: >all_missions Mando\n")
         embed.add_field(name="Show bounties",
                         value="Run /all_bounties (preferred) or >all_bounties to show available bounties.")
         embed.set_footer(text="Built by BaronViper#8694")
@@ -91,11 +92,26 @@ def run_discord_bot():
     @commands.has_role("Game Master")
     @app_commands.describe(title="Title of mission", description="Job description",
                            reward="How much is earned upon completion?",
-                           difficulty="Choose: Very Easy, Easy, Medium, Hard, Very Hard, Expert.")
-    async def add_mission(ctx, title: str, description: str, reward: int, difficulty: str):
+                           difficulty="Choose: Very Easy, Easy, Medium, Hard, Very Hard, Expert.",
+                           faction='What faction is this mission for?')
+    @app_commands.choices(difficulty=[
+        app_commands.Choice(name="Very Easy", value="Very Easy"),
+        app_commands.Choice(name="Easy", value="Easy"),
+        app_commands.Choice(name="Medium", value="Medium"),
+        app_commands.Choice(name="Hard", value="Hard"),
+        app_commands.Choice(name="Very Hard", value="Very Hard"),
+        app_commands.Choice(name="Expert", value="Expert"),
+    ])
+    @app_commands.choices(faction=[
+        app_commands.Choice(name="Rogue", value="Rogue"),
+        app_commands.Choice(name="Imperial", value="Imperial"),
+        app_commands.Choice(name="Rebel", value="Rebel"),
+        app_commands.Choice(name="Mandalorian", value="Mandalorian"),
+    ])
+    async def add_mission(ctx, title: str, description: str, reward: int, difficulty: app_commands.Choice[str], faction: app_commands.Choice[str]):
         embed = discord.Embed(colour=discord.Colour.from_rgb(0, 0, 0),
                               title=f"Confirm Mission Details",
-                              description=f"**Title:** {title.title()}\n\n **Difficulty:** {difficulty.title()}\n\n **Reward:** <:credits:1099938341467738122>{reward:,}\n\n **Description:** {description}")
+                              description=f"**Title:** {' '.join(x.capitalize() for x in title.split())}\n\n **Faction:** {faction.value}\n\n **Difficulty:** {difficulty.value}\n\n **Reward:** <:credits:1099938341467738122>{reward:,}\n\n **Description:** {description}")
         embed.set_footer(text="✅ to confirm, or ❌ to cancel.")
 
         bot_response = await ctx.send(embed=embed)
@@ -113,10 +129,11 @@ def run_discord_bot():
                     await ctx.send("Error. Too many missions already listed. Maximum of 10 only.")
                 else:
                     new_mission = Missions(
-                        title=title.title(),
+                        title=' '.join(x.capitalize() for x in title.split()),
                         description=description,
                         reward=reward,
-                        difficulty=difficulty.title()
+                        difficulty=difficulty.value,
+                        faction=faction.value
                     )
                     session.add(new_mission)
                     session.commit()
@@ -168,15 +185,22 @@ def run_discord_bot():
         except asyncio.TimeoutError:
             await ctx.send("Confirmation timed out.")
 
-    @bot.hybrid_command(name="all_missions", description="Shows all available missions.")
-    async def all_missions(ctx):
-        missions = session.query(Missions).all()
+    @bot.hybrid_command(name="all_missions", description="Shows all available missions for each faction.")
+    @app_commands.describe(faction='What faction missions to show?')
+    @app_commands.choices(faction=[
+        app_commands.Choice(name="Rogue", value="Rogue"),
+        app_commands.Choice(name="Imperial", value="Imperial"),
+        app_commands.Choice(name="Rebel", value="Rebel"),
+        app_commands.Choice(name="Mandalorian", value="Mandalorian"),
+    ])
+    async def all_missions(ctx, faction: app_commands.Choice[str]):
+        missions = session.query(Missions).filter_by(faction=faction.value).all()
         embed_description = ""
         for mission in missions:
             embed_description += f"\n\n**<:credits:1099938341467738122>{mission.reward:,} - ID: {missions.index(mission) + 1} - {mission.title} - {mission.difficulty}**\n {mission.description}"
         embed = discord.Embed(
             colour=discord.Colour.from_rgb(0, 0, 0),
-            title="=== Mission Board ===",
+            title=f"=== {faction.value} Mission Board ===",
             description=embed_description
         )
         await ctx.send(embed=embed)
@@ -195,15 +219,22 @@ def run_discord_bot():
         await ctx.send(embed=embed)
 
     @bot.hybrid_command(name="mission_info", description="Show info for specified mission ID (1-10).")
-    @app_commands.describe(m_id="ID of mission")
-    async def mission_info(ctx, m_id: int):
+    @app_commands.describe(m_id="ID of mission",
+                           faction='What faction missions to show?')
+    @app_commands.choices(faction=[
+        app_commands.Choice(name="Rogue", value="Rogue"),
+        app_commands.Choice(name="Imperial", value="Imperial"),
+        app_commands.Choice(name="Rebel", value="Rebel"),
+        app_commands.Choice(name="Mandalorian", value="Mandalorian"),
+    ])
+    async def mission_info(ctx, m_id: int, faction: app_commands.Choice[str]):
         if m_id not in range(1, 11):
             await ctx.send("Invalid mission ID. Enter an ID number from 1-10")
         else:
-            mission = session.query(Missions).all()[m_id - 1]
+            mission = session.query(Missions).filter_by(faction=faction.value).all()[m_id - 1]
             embed = discord.Embed(
                 colour=discord.Colour.from_rgb(0, 0, 0),
-                title=f"=== Mission Info - ID: {m_id} ===",
+                title=f"=== {faction.value} Mission Info - ID: {m_id} ===",
                 description=f"**<:credits:1099938341467738122>{mission.reward:,} - {mission.title} - {mission.difficulty}**\n {mission.description}"
             )
             await ctx.send(embed=embed)
@@ -257,15 +288,22 @@ def run_discord_bot():
 
     @bot.hybrid_command(name="delete_mission", description="Delete mission by specified mission ID (1-10).")
     @commands.has_role('Game Master')
-    @app_commands.describe(m_id="ID of mission")
-    async def delete_mission(ctx, m_id: int):
+    @app_commands.describe(m_id="ID of mission",
+                           faction='What faction mission to delete?')
+    @app_commands.choices(faction=[
+        app_commands.Choice(name="Rogue", value="Rogue"),
+        app_commands.Choice(name="Imperial", value="Imperial"),
+        app_commands.Choice(name="Rebel", value="Rebel"),
+        app_commands.Choice(name="Mandalorian", value="Mandalorian"),
+    ])
+    async def delete_mission(ctx, m_id: int, faction: app_commands.Choice[str]):
         if m_id not in range(1, 11):
             await ctx.send("Invalid mission ID. Enter an ID number from 1-10")
         else:
-            mission = session.query(Missions).all()[m_id - 1]
+            mission = session.query(Missions).filter_by(faction=faction.value).all()[m_id - 1]
             embed = discord.Embed(
                 colour=discord.Colour.from_rgb(0, 0, 0),
-                title=f"=== Delete Mission - ID: {m_id} ===",
+                title=f"=== Delete {faction.value} Mission - ID: {m_id} ===",
                 description=f"**<:credits:1099938341467738122>{mission.reward:,} - {mission.title} - {mission.difficulty}**\n {mission.description}"
             )
             embed.set_footer(text="✅ to confirm, or ❌ to cancel.")
