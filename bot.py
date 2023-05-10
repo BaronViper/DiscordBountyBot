@@ -166,7 +166,7 @@ def run_discord_bot():
         targeted_mission = None
         status_pass = True
 
-        targeted_mission = session.query(Missions).filter_by(faction=faction.value, id=m_id).first()
+        targeted_mission = session.query(Missions).filter_by(faction=faction.value).all()[m_id-1]
         if targeted_mission:
             if mission_field.value == 'Title':
                 mission_value = ' '.join(x.capitalize() for x in mission_value.split())
