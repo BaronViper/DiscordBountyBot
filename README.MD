@@ -19,6 +19,7 @@ Note: Slash commands are supported! Just enter "/" in Discord's chat box and sel
 * \>add_bounty: Adds a new bounty. Only accessible by users with the "Member" role.
 * \>all_missions: Shows all available missions.
 * \>all_bounties: Shows all available bounties.
+* \>edit_mission: Edits an already registered mission specified by mission ID and faction. Only accessible by users with the "Game Master" role.
 * \>delete_bounty: Deletes a bounty specified by bounty ID.
 * \>delete_mission: Deletes a mission specified by mission ID.
 
