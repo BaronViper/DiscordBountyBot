@@ -145,7 +145,7 @@ def run_discord_bot():
         except asyncio.TimeoutError:
             await ctx.send("Confirmation timed out.")
 
-    @bot.hybrid_command(name="claim_mission", description='Claims a mission and sets to in progress or vice versa.')
+    @bot.hybrid_command(name="mission_status", description="Claims a mission and sets to 'in progress' or vice versa.")
     @commands.has_role("Game Master")
     @app_commands.describe(faction='What faction is this mission for?',
                            m_id="What is the mission's ID?"
@@ -158,13 +158,15 @@ def run_discord_bot():
             app_commands.Choice(name="Mandalorian", value="Mandalorian"),
         ]
     )
-    async def claim_mission(ctx, m_id: int, faction: app_commands.Choice[str]):
+    async def mission_status(ctx, m_id: int, faction: app_commands.Choice[str]):
         targeted_mission = session.query(Missions).filter_by(faction=faction.value).all()[m_id-1]
         if targeted_mission:
             if targeted_mission.availability == "Available":
                 targeted_mission.availability = "In Progress"
             else:
                 targeted_mission.availability = "Available"
+            session.commit()
+            await ctx.send(f"Mission status updated. {faction.name} mission ID {m_id}, set to `Status: {targeted_mission.availability}`")
         else:
             await ctx.send("Mission not found.")
 
