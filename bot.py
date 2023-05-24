@@ -133,7 +133,8 @@ def run_discord_bot():
                         description=description,
                         reward=reward,
                         difficulty=difficulty.value,
-                        faction=faction.value
+                        faction=faction.value,
+                        availability="Available"
                     )
                     session.add(new_mission)
                     session.commit()
