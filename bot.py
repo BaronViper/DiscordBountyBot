@@ -6,7 +6,7 @@ from discord.ext import commands, tasks
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Boolean
 import dotenv
 import os
 
@@ -23,6 +23,7 @@ class Missions(Base):
     reward = Column(Integer)
     difficulty = Column(String)
     faction = Column(String)
+    availability = Column(String)
 
 
 class Bounties(Base):
@@ -143,6 +144,29 @@ def run_discord_bot():
 
         except asyncio.TimeoutError:
             await ctx.send("Confirmation timed out.")
+
+    @bot.hybrid_command(name="claim_mission", description='Claims a mission and sets to in progress or vice versa.')
+    @commands.has_role("Game Master")
+    @app_commands.describe(faction='What faction is this mission for?',
+                           m_id="What is the mission's ID?"
+                           )
+    @app_commands.choices(
+        faction=[
+            app_commands.Choice(name="Rogue", value="Rogue"),
+            app_commands.Choice(name="Imperial", value="Imperial"),
+            app_commands.Choice(name="Rebel", value="Rebel"),
+            app_commands.Choice(name="Mandalorian", value="Mandalorian"),
+        ]
+    )
+    async def claim_mission(ctx, m_id: int, faction: app_commands.Choice[str]):
+        targeted_mission = session.query(Missions).filter_by(faction=faction.value).all()[m_id-1]
+        if targeted_mission:
+            if targeted_mission.availability == "Available":
+                targeted_mission.availability = "In Progress"
+            else:
+                targeted_mission.availability = "Available"
+        else:
+            await ctx.send("Mission not found.")
 
     @bot.hybrid_command(name="edit_mission", description='Edits a mission')
     @commands.has_role("Game Master")
@@ -272,7 +296,7 @@ def run_discord_bot():
         missions = session.query(Missions).filter_by(faction=faction.value).all()
         embed_description = ""
         for mission in missions:
-            embed_description += f"\n\n**<:credits:1099938341467738122>{mission.reward:,} - ID: {missions.index(mission) + 1} - {mission.title} - {mission.difficulty}**\n{mission.description}"
+            embed_description += f"\n\n**<:credits:1099938341467738122>{mission.reward:,} - ID: {missions.index(mission) + 1} - {mission.title} - {mission.difficulty}**\n`Status: {mission.availability}`\n{mission.description}"
         embed = discord.Embed(
             colour=discord.Colour.from_rgb(0, 0, 0),
             title=f"=== {faction.value} Mission Board ===",
@@ -310,7 +334,7 @@ def run_discord_bot():
             embed = discord.Embed(
                 colour=discord.Colour.from_rgb(0, 0, 0),
                 title=f"=== {faction.value} Mission Info - ID: {m_id} ===",
-                description=f"**<:credits:1099938341467738122>{mission.reward:,} - {mission.title} - {mission.difficulty}**\n{mission.description}"
+                description=f"**<:credits:1099938341467738122>{mission.reward:,} - {mission.title} - {mission.difficulty}**\n`Status: {mission.availability}`\n{mission.description}"
             )
             await ctx.send(embed=embed)
 
