@@ -7,13 +7,21 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy.exc import PendingRollbackError
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+import asyncio
 import dotenv
+import random
 import os
+
 
 dotenv.load_dotenv()
 
 Base = declarative_base()
 
+genai.configure(api_key=os.getenv("API_KEY"))
+model = genai.GenerativeModel("gemini-1.5-flash-latest")
 
 class Missions(Base):
     __tablename__ = "missions"
@@ -63,7 +71,6 @@ def run_discord_bot():
 
     @bot.event
     async def on_ready():
-        await bot.tree.sync()
         await change_status()
         print(f"{bot.user} online")
 
@@ -166,7 +173,10 @@ def run_discord_bot():
                 targeted_mission.availability = "In Progress"
             else:
                 targeted_mission.availability = "Available"
-            session.commit()
+            try:
+                session.commit()
+            except PendingRollbackError:
+                session.rollback()
             await ctx.send(f"Mission status updated. {faction.name} mission ID {m_id}, set to `Status: {targeted_mission.availability}`")
         else:
             await ctx.send("Mission not found.")
@@ -427,5 +437,71 @@ def run_discord_bot():
                     await ctx.send("Canceled request.")
             except asyncio.TimeoutError:
                 await ctx.send("Confirmation timed out.")
+
+    @bot.hybrid_command(name="roll", description="Rolls a number from 1-100")
+    async def roll(ctx):
+        await ctx.send(f"Rolled 🎲: **{random.randint(1, 100)}**")
+
+    @bot.hybrid_command(name="purge", description="Deletes up to 20 messages")
+    @commands.has_role("Staff")
+    @app_commands.describe(num="Number of messages to delete (Maximum of 20)")
+    async def purge(ctx, num:int):
+        if num > 0:
+            if num > 20:
+                num = 20
+
+            if ctx.interaction:
+                await ctx.interaction.response.send_message(f"Purged {num} messages 🗑️", ephemeral=True)
+            await ctx.channel.purge(limit=num + 1)
+        else:
+            if ctx.interaction:
+                await ctx.interaction.response.send_message(f"Invalid number of messages to purge.", ephemeral=True)
+
+    @bot.hybrid_command(name="export", description="Download the current database contents")
+    @commands.has_role("Owner")
+    async def export(ctx):
+        try:
+            file_path = "info.db"
+            if not os.path.exists(file_path):
+                await ctx.send("The database file does not exist.")
+                return
+
+            if ctx.interaction:
+                await ctx.interaction.response.send_message(file=discord.File(file_path), ephemeral=True)
+            else:
+                file_msg = await ctx.send(file=discord.File(file_path))
+                await asyncio.sleep(5)
+                await file_msg.delete()
+        except Exception as e:
+            print(f"Error in export command: {e}")
+            await ctx.send("An error occurred while exporting the database.")
+
+    @bot.hybrid_command(name='reload', description="Reload the bot's command tree")
+    @commands.has_role("Owner")
+    async def reload(ctx):
+        try:
+            await ctx.send("Reloading command tree...")
+            commands_synced = await bot.tree.sync()
+            await ctx.send(f"Tree.sync reloaded. {len(commands_synced)} commands updated.")
+        except Exception as e:
+            print(f"Error in reload command: {e}")
+            await ctx.send("An error occurred while reloading the command tree.")
+
+    @bot.hybrid_command(name="chat", description="Chat with AI!")
+    @app_commands.describe(prompt="Your message")
+    async def chat(ctx, prompt:str):
+        response = model.generate_content(prompt,
+                                          safety_settings={
+                                              HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                                              HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                                              HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                                              HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
+                                          generation_config=genai.GenerationConfig(
+                                              max_output_tokens=500,
+                                              temperature=0.8,
+                                          )
+                                          )
+
+        await ctx.send(response.text)
 
     bot.run(os.getenv('TOKEN'))
