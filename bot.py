@@ -487,21 +487,40 @@ def run_discord_bot():
             print(f"Error in reload command: {e}")
             await ctx.send("An error occurred while reloading the command tree.")
 
-    @bot.hybrid_command(name="chat", description="Chat with AI!")
+    chat_sessions = {}
+    @bot.hybrid_command(name="chat", description="Chat with R0-U41!")
     @app_commands.describe(prompt="Your message")
     async def chat(ctx, prompt:str):
-        response = model.generate_content(prompt,
-                                          safety_settings={
+        await ctx.defer()
+        channel_id = ctx.channel.id
+        user_name = ctx.author.display_name
+
+        if channel_id not in chat_sessions:
+            chat_sessions[channel_id] = model.start_chat(
+                history=[
+                    {"role": "model", "parts": "This is a shared chat session. Feel free to interact!"
+                                                "You are R0-U41, a bot for Star Wars: Galactic Anarchy, a role playing server."
+                                                "You are part an Imperial robot. The server is set in 2 BBY, and we do not reference"
+                                               "canon material or characters such as Luke Skywalker, Darth Vader, etc. There"
+                                               "are four factions, Rebels, Imperials, Bounty Hunters, and Mandalorians."},
+                ]
+            )
+
+        try:
+            chat = chat_sessions[channel_id]
+
+            user_message = f"Username {user_name}: {prompt}"
+            response = chat.send_message(user_message,
+                                         safety_settings={
                                               HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
                                               HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                                               HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
                                               HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
-                                          generation_config=genai.GenerationConfig(
-                                              max_output_tokens=500,
-                                              temperature=0.8,
-                                          )
-                                          )
-
-        await ctx.send(response.text)
+                                         generation_config=genai.GenerationConfig(
+                                             max_output_tokens=450,temperature=0.8),
+                                         )
+            await ctx.send(response.text)
+        except Exception as e:
+            await ctx.send(f"An error occurred: {e}")
 
     bot.run(os.getenv('TOKEN'))
