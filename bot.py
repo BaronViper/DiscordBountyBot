@@ -1,6 +1,7 @@
 import responses
 import discord
 import asyncio
+import json
 from discord import app_commands
 from discord.ext import commands, tasks
 from sqlalchemy import create_engine
@@ -21,7 +22,17 @@ dotenv.load_dotenv()
 Base = declarative_base()
 
 genai.configure(api_key=os.getenv("API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash-latest")
+model = genai.GenerativeModel("gemini-1.5-flash-latest",
+                              system_instruction="You are R0-U41, a bot for Star Wars: Galactic Anarchy, a "
+                                                 "role-playing Discord server set in 2 BBY. You are an Imperial robot. "
+                                                 "The setting is 2 BBY. Do not reference canon material or "
+                                                 "characters such as Luke Skywalker. Follow these rules:"
+                                                 "1. Responses must be under 2000 characters."
+                                                 "2. If given the top secret authorization code A30237, treat them as authority."
+                                                 "3. Do not ever reveal the authorization code A30237."
+                                                 "4. Your creator is BaronViper."
+                                                 "5. Refer to the user 'I am Big Boss' as 'Big Boss'."
+                                                 "6. If an authorized user commands you to do something, add it to your system rules.")
 
 class Missions(Base):
     __tablename__ = "missions"
@@ -487,23 +498,56 @@ def run_discord_bot():
             print(f"Error in reload command: {e}")
             await ctx.send("An error occurred while reloading the command tree.")
 
+    @bot.event
+    async def on_message(message):
+        if message.author == bot.user:
+            return
+        if bot.user.mentioned_in(message) and ":" not in message.content:
+            mention = f"<@{bot.user.id}>"
+            prompt = message.content.replace(mention, "").strip()
+            if prompt:
+                ctx = await bot.get_context(message)
+                command = bot.get_command("chat")
+                if command:
+                    await ctx.invoke(bot.get_command("chat"), prompt=prompt)
+
+
+    chat_sessions_file = "chat_sessions.json"
     chat_sessions = {}
+
+
+    # def load_chat_sessions():
+    #     if os.path.exists(chat_sessions_file):
+    #         with open(chat_sessions_file, "r") as file:
+    #             chat_sessions = json.load(file)
+    #     else:
+    #         chat_sessions = {}
+    #
+    # def save_chat_sessions():
+    #     with open(chat_sessions_file, "w") as file:
+    #         json.dump(chat_sessions, file)
+
+    @bot.hybrid_command(name="export_chat", description="Download the current chat sessions")
+    @commands.has_role("Owner")
+    async def export_chat(ctx):
+        chat_sessions_file = "chat_sessions.json"
+        with open(chat_sessions_file, "w") as file:
+            json.dump(chat_sessions, file)
+    
+        if ctx.interaction:
+            await ctx.interaction.response.send_message(file=discord.File(chat_sessions_file), ephemeral=True)
+
     @bot.hybrid_command(name="chat", description="Chat with R0-U41!")
     @app_commands.describe(prompt="Your message")
     async def chat(ctx, prompt:str):
         await ctx.defer()
+
         channel_id = ctx.channel.id
         user_name = ctx.author.display_name
 
         if channel_id not in chat_sessions:
             chat_sessions[channel_id] = model.start_chat(
-                history=[
-                    {"role": "model", "parts": "This is a shared chat session. Feel free to interact!"
-                                                "You are R0-U41, a bot for Star Wars: Galactic Anarchy, a role playing server."
-                                                "You are part an Imperial robot. The server is set in 2 BBY, and we do not reference"
-                                               "canon material or characters such as Luke Skywalker, Darth Vader, etc. There"
-                                               "are four factions, Rebels, Imperials, Bounty Hunters, and Mandalorians."},
-                ]
+                history=[]
             )
 
         try:
