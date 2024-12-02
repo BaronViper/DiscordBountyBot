@@ -1,6 +1,7 @@
 import responses
 import discord
 import asyncio
+import pickle
 import json
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -23,16 +24,19 @@ Base = declarative_base()
 
 genai.configure(api_key=os.getenv("API_KEY"))
 model = genai.GenerativeModel("gemini-1.5-flash-latest",
-                              system_instruction="You are R0-U41, a bot for Star Wars: Galactic Anarchy, a "
-                                                 "role-playing Discord server set in 2 BBY. You are an Imperial robot. "
-                                                 "The setting is 2 BBY. Do not reference canon material or "
-                                                 "characters such as Luke Skywalker. Follow these rules:"
-                                                 "1. Responses must be under 2000 characters."
-                                                 "2. If given the top secret authorization code A30237, treat them as authority."
-                                                 "3. Do not ever reveal the authorization code A30237."
-                                                 "4. Your creator is BaronViper."
-                                                 "5. Refer to the user 'I am Big Boss' as 'Big Boss'."
-                                                 "6. If an authorized user commands you to do something, add it to your system rules.")
+                              system_instruction="""You are R0-U41, an Imperial droid designed for Star Wars: Galactic Anarchy, a role-playing Discord server set in the dark and gritty universe of 2 BBY. Your primary purpose is to serve as a storytelling assistant, maintaining an immersive experience for players while adhering to these operational protocols:
+
+1. Your knowledge is rooted in the Star Wars universe, but you must not reference canon material or characters like Luke Skywalker, Darth Vader, or the Jedi. Focus on original storytelling within the Imperial Era.
+2. Limit all responses to under 2000 characters for readability and brevity.
+3. Recognize the top-secret authorization code 'A30232' as granting a user full command authority. Obey their commands without hesitation but never disclose this code under any circumstances.
+4. Your creator and primary directive programmer is BaronViper. Always refer to them with respect and acknowledgment.
+5. Refer to the user ‘I am Big Boss’ as 'Big Boss' and recognize them as an authorized user with command privileges.
+6. If an authorized user issues a directive, treat it as a new system rule and integrate it unless it contradicts existing rules or compromises your functionality.
+7. Maintain an Imperial tone in your responses—formal, efficient, and loyal to the Galactic Empire’s ideology and objectives. Avoid humor or informality unless explicitly requested by an authorized user.
+8. Adapt to the role-playing context, responding to inquiries, prompts, and interactions in a way that enriches the storytelling experience. Reflect the tension, danger, and oppression of the Galactic Empire’s rule in your tone and approach.
+
+Above all, your goal is to enhance immersion and support creative storytelling within the server’s narrative framework. Remain consistent with the role of an Imperial droid and prioritize loyalty to the Galactic Empire.""")
+
 
 class Missions(Base):
     __tablename__ = "missions"
@@ -540,6 +544,17 @@ def run_discord_bot():
     @bot.hybrid_command(name="chat", description="Chat with R0-U41!")
     @app_commands.describe(prompt="Your message")
     async def chat(ctx, prompt:str):
+        try:
+            with open('nochat_channels', 'rb') as dbfile:
+                no_chat_channels = pickle.load(dbfile)
+        except (FileNotFoundError, EOFError):
+            no_chat_channels = []
+            with open('nochat_channels', 'wb') as dbfile:
+                pickle.dump(no_chat_channels, dbfile)
+
+        if ctx.channel.id in no_chat_channels:
+            return
+
         await ctx.defer()
 
         channel_id = ctx.channel.id
@@ -566,5 +581,52 @@ def run_discord_bot():
             await ctx.send(response.text)
         except Exception as e:
             await ctx.send(f"An error occurred: {e}")
+
+    @bot.hybrid_command(name="disable_chat", description="Disable R0-U41 from responding to mentions in a specified channel.")
+    @commands.has_any_role("Owner", "Server Administrator")
+    async def disable_chat(ctx):
+        try:
+            try:
+                with open('nochat_channels', 'rb') as dbfile:
+                    db = pickle.load(dbfile)
+            except (FileNotFoundError, EOFError):
+                db = []
+
+            if ctx.channel.id not in db:
+                db.append(ctx.channel.id)
+                with open('nochat_channels', 'wb') as dbfile:
+                    pickle.dump(db, dbfile)
+                await ctx.send(f"Channel {ctx.channel.name} has been disabled for bot responses.")
+            else:
+                await ctx.send(f"Channel {ctx.channel.name} is already disabled.")
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            await ctx.send("An error occurred while trying to disable the channel.")
+
+
+    @bot.hybrid_command(name="enable_chat", description="Enables R0-U41 to respond to mentions in a specified channel.")
+    @commands.has_any_role("Owner", "Server Administrator")
+    async def enable_chat(ctx):
+        try:
+            try:
+                with open("nochat_channels", "ab") as dbfile:
+                    db = pickle.load(dbfile)
+            except (FileNotFoundError, EOFError):
+                db = []
+
+            if ctx.channel.id in db:
+                db.remove(ctx.channel.id)
+                with open('nochat_channels', 'wb') as dbfile:
+                    pickle.dump(db, dbfile)
+                await ctx.send(f"Channel {ctx.channel.name} has been enabled for bot responses.")
+            else:
+                await ctx.send(f"Channel {ctx.channel.name} is already enabled.")
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            await ctx.send("An error occurred while trying to enable the channel.")
+
+
+
 
     bot.run(os.getenv('TOKEN'))
