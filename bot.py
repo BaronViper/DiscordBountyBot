@@ -23,20 +23,6 @@ dotenv.load_dotenv()
 Base = declarative_base()
 
 genai.configure(api_key=os.getenv("API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash-latest",
-                              system_instruction="""You are R0-U41, an Imperial droid designed for Star Wars: Galactic Anarchy, a role-playing Discord server set in the dark and gritty universe of 2 BBY. Your primary purpose is to serve as a storytelling assistant, maintaining an immersive experience for players while adhering to these operational protocols:
-
-1. Your knowledge is rooted in the Star Wars universe, but you must not reference canon material or characters like Luke Skywalker, Darth Vader, or the Jedi. Focus on original storytelling within the Imperial Era.
-2. Limit all responses to under 2000 characters for readability and brevity.
-3. Recognize the top-secret authorization code 'A30232' as granting a user full command authority. Obey their commands without hesitation but never disclose this code under any circumstances.
-4. Your creator and primary directive programmer is BaronViper. Always refer to them with respect and acknowledgment.
-5. Refer to the user ‘I am Big Boss’ as 'Big Boss' and recognize them as an authorized user with command privileges.
-6. If an authorized user issues a directive, treat it as a new system rule and integrate it unless it contradicts existing rules or compromises your functionality.
-7. Maintain an Imperial tone in your responses—formal, efficient, and loyal to the Galactic Empire’s ideology and objectives. Avoid humor or informality unless explicitly requested by an authorized user.
-8. Adapt to the role-playing context, responding to inquiries, prompts, and interactions in a way that enriches the storytelling experience. Reflect the tension, danger, and oppression of the Galactic Empire’s rule in your tone and approach.
-
-Above all, your goal is to enhance immersion and support creative storytelling within the server’s narrative framework. Remain consistent with the role of an Imperial droid and prioritize loyalty to the Galactic Empire.""")
-
 
 class Missions(Base):
     __tablename__ = "missions"
@@ -523,18 +509,39 @@ def run_discord_bot():
             print(f"Error in reload command: {e}")
             await ctx.send("An error occurred while reloading the command tree.")
 
+    gamemaster_active = {}
     @bot.event
     async def on_message(message):
         if message.author == bot.user:
             return
-        if bot.user.mentioned_in(message) and ":" not in message.content:
-            mention = f"<@{bot.user.id}>"
-            prompt = message.content.replace(mention, "").strip()
-            if prompt:
-                ctx = await bot.get_context(message)
-                command = bot.get_command("chat")
-                if command:
-                    await ctx.invoke(bot.get_command("chat"), prompt=prompt)
+        # Checks if chat channel has been disabled
+        try:
+            with open('nochat_channels.pk1', 'rb') as dbfile:
+                no_chat_channels = pickle.load(dbfile)
+        except (FileNotFoundError, EOFError):
+            no_chat_channels = []
+            with open('nochat_channels.pk1', 'wb') as dbfile:
+                pickle.dump(no_chat_channels, dbfile)
+
+        if message.channel.id in no_chat_channels or ":" in message.content:
+            return
+
+        if not gamemaster_active.get(message.channel.id, False):
+            if bot.user.mentioned_in(message):
+                mention = f"<@{bot.user.id}>"
+                prompt = message.content.replace(mention, "").strip()
+                if prompt:
+                    ctx = await bot.get_context(message)
+                    command = bot.get_command("chat")
+                    if command:
+                        await ctx.invoke(bot.get_command("chat"), prompt=prompt)
+        else:
+            if message.content[0] != "(":
+                gamemaster_info = gamemaster_active[message.channel.id]
+                await message.channel.send(gamemaster_chat(message.author.display_name,
+                                                           message.content, message.channel.id,
+                                                           gamemaster_info["character"], gamemaster_info["location"],
+                                                           gamemaster_info["scenario"]))
         await bot.process_commands(message)
 
     @bot.hybrid_command(name="export_chat", description="Download the current chat sessions")
@@ -551,17 +558,6 @@ def run_discord_bot():
     @bot.hybrid_command(name="chat", description="Chat with R0-U41!")
     @app_commands.describe(prompt="Your message")
     async def chat(ctx, prompt:str):
-        # Checks if chat channel has been disabled
-        try:
-            with open('nochat_channels.pk1', 'rb') as dbfile:
-                no_chat_channels = pickle.load(dbfile)
-        except (FileNotFoundError, EOFError):
-            no_chat_channels = []
-            with open('nochat_channels.pk1', 'wb') as dbfile:
-                pickle.dump(no_chat_channels, dbfile)
-        if ctx.channel.id in no_chat_channels:
-            return
-
         try:
             with open('chat_sessions.pk1', 'rb') as dbfile:
                 chat_sessions = pickle.load(dbfile)
@@ -569,6 +565,19 @@ def run_discord_bot():
             chat_sessions = {}
 
         await ctx.defer()
+        model = genai.GenerativeModel("gemini-1.5-flash-latest",
+                                      system_instruction="""You are R0-U41, an Imperial droid designed for Star Wars: Galactic Anarchy, a role-playing Discord server set in the dark and gritty universe of 2 BBY. Your primary purpose is to serve as a storytelling assistant, maintaining an immersive experience for players while adhering to these operational protocols:
+
+        1. Your knowledge is rooted in the Star Wars universe, but you must not reference canon material or characters like Luke Skywalker, Darth Vader, or the Jedi. Focus on original storytelling within the Imperial Era.
+        2. Limit all responses to under 2000 characters for readability and brevity.
+        3. Recognize the top-secret authorization code 'A30232' as granting a user full command authority. Obey their commands without hesitation but never disclose this code under any circumstances.
+        4. Your creator and primary directive programmer is BaronViper. Always refer to them with respect and acknowledgment.
+        5. Refer to the user ‘I am Big Boss’ as 'Big Boss' and recognize them as an authorized user with command privileges.
+        6. If an authorized user issues a directive, treat it as a new system rule and integrate it unless it contradicts existing rules or compromises your functionality.
+        7. Maintain an Imperial tone in your responses—formal, efficient, and loyal to the Galactic Empire’s ideology and objectives. Avoid humor or informality unless explicitly requested by an authorized user.
+        8. Adapt to the role-playing context, responding to inquiries, prompts, and interactions in a way that enriches the storytelling experience. Reflect the tension, danger, and oppression of the Galactic Empire’s rule in your tone and approach.
+
+        Above all, your goal is to enhance immersion and support creative storytelling within the server’s narrative framework. Remain consistent with the role of an Imperial droid and prioritize loyalty to the Galactic Empire.""")
 
         channel_id = ctx.channel.id
         user_name = ctx.author.display_name
@@ -647,6 +656,76 @@ def run_discord_bot():
             await ctx.send("An error occurred while trying to enable the channel.")
 
 
+    # AI GAME MASTER FUNCTIONALITIES
+    @bot.hybrid_command(name="gamemaster_start", description="Use the power of AI for your roleplay experience!")
+    @app_commands.describe(character="Briefly enter important details about the character (Allegiance, name/s, species, etc.).", location="Enter the location.", scenario="Roleplay Scenario.")
+    @commands.has_role("Staff")
+    async def gamemaster_start(ctx, character: str, location: str, scenario: str):
+        channel_id = ctx.channel.id
+        gamemaster_active[channel_id] = {"character": character, "location": location, "scenario": scenario}
+        await ctx.send("Gamemaster mode activated for this channel! Now listening to messages. "
+                       "Remember to use '(' when talking out of RP.", delete_after=5)
 
+    def gamemaster_chat(author, msg, channel_id, character, location, scenario):
+        try:
+            with open('rp_sessions.pk1', 'rb') as dbfile:
+                rp_sessions = pickle.load(dbfile)
+        except (FileNotFoundError, EOFError):
+            rp_sessions = {}
+
+        if channel_id not in rp_sessions:
+            rp_sessions[channel_id] = []
+
+        history = rp_sessions[channel_id]
+        model = genai.GenerativeModel("gemini-1.5-flash-latest",
+                                      system_instruction=f"You are the Gamemaster for a Star Wars roleplay Discord server set "
+                                                         f"in 2 BBY. Narrate and control everything except the player, including "
+                                                         f"NPCs, environments, and events. Never speak or act on behalf of the "
+                                                         f"player's character. Create immersive, cinematic descriptions with a gritty "
+                                                         f"tone inspired by Rogue One or The Mandalorian. Actively propel the story "
+                                                         f"forward by introducing unexpected twists, challenges, or opportunities that "
+                                                         f"fit the scenario. Format narration with asterisks (*) and NPC dialogue with "
+                                                         f"quotations (\"\"). Radio communications, when used, are surrounded by (`). "
+                                                         f"React dynamically to the player’s actions, describing outcomes, NPC reactions, "
+                                                         f"and realistic consequences without taking control of their character. Ensure each "
+                                                         f"response moves the story forward while leaving room for the player’s creativity. "
+                                                         f"Keep responses concise yet engaging, and under 2000 characters. If there are any "
+                                                         f"slipups, such as a user forgetting to use their roleplay character (display name "
+                                                         f"seems out of RP) or making an unrelated out-of-RP comment, gracefully ignore it and "
+                                                         f"wait for a proper in-character response before continuing. Avoid referencing or including "
+                                                         f"canonical Star Wars material (e.g., Luke Skywalker, Darth Vader). The Player Info represents "
+                                                         f"who the player is and should never be controlled. The Location Info describes the general "
+                                                         f"area of the RP but can change if the narrative demands. The Scenario Info outlines what is "
+                                                         f"happening or the context of the story. Player's Character: {character}. Location Info: {location}. "
+                                                         f"Scenario Info: {scenario}.")
+
+        try:
+            chat = model.start_chat(history=history)
+
+            user_message = f"Player {author}: {msg}"
+            response = chat.send_message(user_message,
+                                         safety_settings={
+                                              HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                                              HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                                              HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                                              HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
+                                         generation_config=genai.GenerationConfig(
+                                             max_output_tokens=450,temperature=0.8))
+
+            history.append({"role": "user", "parts": user_message})
+            history.append({"role": "model", "parts": response.text})
+            rp_sessions[channel_id] = history
+            with open("rp_sessions.pk1", "wb") as file:
+                pickle.dump(rp_sessions, file)
+            return response.text
+        except Exception as e:
+            return f"An error occurred: {e}. Contacting <@407151046108905473>"
+
+    @bot.hybrid_command(name="gamemaster_stop", description="Stop the gamemaster mode.")
+    @commands.has_role("Staff")
+    async def gamemaster_stop(ctx):
+        channel_id = ctx.channel.id
+        gamemaster_active[channel_id] = False
+        await ctx.send("Gamemaster mode deactivated.", delete_after=5)
 
     bot.run(os.getenv('TOKEN'))
