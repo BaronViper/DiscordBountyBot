@@ -472,9 +472,9 @@ def run_discord_bot():
             if ctx.interaction:
                 await ctx.interaction.response.send_message(f"Invalid number of messages to purge.", ephemeral=True)
 
-    @bot.hybrid_command(name="export", description="Download the current database contents")
+    @bot.hybrid_command(name="export_db", description="Download the current database contents")
     @commands.has_role("Owner")
-    async def export(ctx):
+    async def export_db(ctx):
         try:
             file_path = "info.db"
             if not os.path.exists(file_path):
@@ -490,6 +490,27 @@ def run_discord_bot():
         except Exception as e:
             print(f"Error in export command: {e}")
             await ctx.send("An error occurred while exporting the database.")
+
+    @bot.hybrid_command(name='export_chatperms', description="Download the current chat perms")
+    @commands.has_any_role('Owner', 'Server Administrator')
+    async def export_chatperms(ctx):
+        try:
+            file_path = "nochat_channels"
+            if not os.path.exists(file_path):
+                await ctx.send("The file does not exist.")
+                return
+
+            if ctx.interaction:
+                await ctx.interaction.response.send_message(file=discord.File(file_path), ephemeral=True)
+            else:
+                file_msg = await ctx.send(file=discord.File(file_path))
+                await asyncio.sleep(5)
+                await file_msg.delete()
+        except Exception as e:
+            print(f"Error in export command: {e}")
+            await ctx.send("An error occurred while exporting the file.")
+
+
 
     @bot.hybrid_command(name='reload', description="Reload the bot's command tree")
     @commands.has_role("Owner")
@@ -514,46 +535,38 @@ def run_discord_bot():
                 command = bot.get_command("chat")
                 if command:
                     await ctx.invoke(bot.get_command("chat"), prompt=prompt)
-
-
-    chat_sessions_file = "chat_sessions.json"
-    chat_sessions = {}
-
-
-    # def load_chat_sessions():
-    #     if os.path.exists(chat_sessions_file):
-    #         with open(chat_sessions_file, "r") as file:
-    #             chat_sessions = json.load(file)
-    #     else:
-    #         chat_sessions = {}
-    #
-    # def save_chat_sessions():
-    #     with open(chat_sessions_file, "w") as file:
-    #         json.dump(chat_sessions, file)
+        await bot.process_commands(message)
 
     @bot.hybrid_command(name="export_chat", description="Download the current chat sessions")
     @commands.has_role("Owner")
     async def export_chat(ctx):
-        chat_sessions_file = "chat_sessions.json"
-        with open(chat_sessions_file, "w") as file:
-            json.dump(chat_sessions, file)
-    
+        chat_sessions_file = "chat_sessions.pk1"
         if ctx.interaction:
             await ctx.interaction.response.send_message(file=discord.File(chat_sessions_file), ephemeral=True)
+        else:
+            file_msg = await ctx.send("Here is the exported chat sessions file:", file=discord.File(chat_sessions_file))
+            await asyncio.sleep(5)
+            await file_msg.delete()
 
     @bot.hybrid_command(name="chat", description="Chat with R0-U41!")
     @app_commands.describe(prompt="Your message")
     async def chat(ctx, prompt:str):
+        # Checks if chat channel has been disabled
         try:
-            with open('nochat_channels', 'rb') as dbfile:
+            with open('nochat_channels.pk1', 'rb') as dbfile:
                 no_chat_channels = pickle.load(dbfile)
         except (FileNotFoundError, EOFError):
             no_chat_channels = []
-            with open('nochat_channels', 'wb') as dbfile:
+            with open('nochat_channels.pk1', 'wb') as dbfile:
                 pickle.dump(no_chat_channels, dbfile)
-
         if ctx.channel.id in no_chat_channels:
             return
+
+        try:
+            with open('chat_sessions.pk1', 'rb') as dbfile:
+                chat_sessions = pickle.load(dbfile)
+        except (FileNotFoundError, EOFError):
+            chat_sessions = {}
 
         await ctx.defer()
 
@@ -561,12 +574,12 @@ def run_discord_bot():
         user_name = ctx.author.display_name
 
         if channel_id not in chat_sessions:
-            chat_sessions[channel_id] = model.start_chat(
-                history=[]
-            )
+            chat_sessions[channel_id] = []
+
+        history = chat_sessions[channel_id]
 
         try:
-            chat = chat_sessions[channel_id]
+            chat = model.start_chat(history=history)
 
             user_message = f"Username {user_name}: {prompt}"
             response = chat.send_message(user_message,
@@ -579,6 +592,13 @@ def run_discord_bot():
                                              max_output_tokens=450,temperature=0.8),
                                          )
             await ctx.send(response.text)
+
+            history.append({"role": "user", "parts": user_message})
+            history.append({"role": "model", "parts": response.text})
+            chat_sessions[channel_id] = history
+
+            with open("chat_sessions.pk1", "wb") as file:
+                pickle.dump(chat_sessions, file)
         except Exception as e:
             await ctx.send(f"An error occurred: {e}")
 
@@ -587,14 +607,14 @@ def run_discord_bot():
     async def disable_chat(ctx):
         try:
             try:
-                with open('nochat_channels', 'rb') as dbfile:
+                with open('nochat_channels.pk1', 'rb') as dbfile:
                     db = pickle.load(dbfile)
             except (FileNotFoundError, EOFError):
                 db = []
 
             if ctx.channel.id not in db:
                 db.append(ctx.channel.id)
-                with open('nochat_channels', 'wb') as dbfile:
+                with open('nochat_channels.pk1', 'wb') as dbfile:
                     pickle.dump(db, dbfile)
                 await ctx.send(f"Channel {ctx.channel.name} has been disabled for bot responses.")
             else:
@@ -610,14 +630,14 @@ def run_discord_bot():
     async def enable_chat(ctx):
         try:
             try:
-                with open("nochat_channels", "ab") as dbfile:
+                with open("nochat_channels.pk1", "rb") as dbfile:
                     db = pickle.load(dbfile)
             except (FileNotFoundError, EOFError):
                 db = []
 
             if ctx.channel.id in db:
                 db.remove(ctx.channel.id)
-                with open('nochat_channels', 'wb') as dbfile:
+                with open('nochat_channels.pk1', 'wb') as dbfile:
                     pickle.dump(db, dbfile)
                 await ctx.send(f"Channel {ctx.channel.name} has been enabled for bot responses.")
             else:
