@@ -1,8 +1,3 @@
-import responses
-import discord
-import asyncio
-import pickle
-import json
 from discord import app_commands
 from discord.ext import commands, tasks
 from sqlalchemy import create_engine
@@ -12,17 +7,21 @@ from sqlalchemy import Column, Integer, String, Boolean
 from sqlalchemy.exc import PendingRollbackError
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from unbelievaboat import Client
 import asyncio
 import dotenv
 import random
 import os
-
+import responses
+import discord
+import pickle
 
 dotenv.load_dotenv()
 
 Base = declarative_base()
 
 genai.configure(api_key=os.getenv("API_KEY"))
+guild_id = 709884234214408212
 
 class Missions(Base):
     __tablename__ = "missions"
@@ -472,40 +471,30 @@ def run_discord_bot():
     @commands.has_role("Owner")
     async def export_db(ctx):
         try:
-            file_path = "info.db"
-            if not os.path.exists(file_path):
-                await ctx.send("The database file does not exist.")
-                return
+            # List of files to export
+            files_to_export = [
+                ("info.db", "The database file does not exist."),
+                ("nochat_channels", "The no-chat channels file does not exist."),
+                ("chat_sessions.pk1", "The chat sessions file does not exist.")
+            ]
 
-            if ctx.interaction:
-                await ctx.interaction.response.send_message(file=discord.File(file_path), ephemeral=True)
-            else:
-                file_msg = await ctx.send(file=discord.File(file_path))
-                await asyncio.sleep(5)
-                await file_msg.delete()
+            for file_path, error_message in files_to_export:
+                if not os.path.exists(file_path):
+                    await ctx.send(error_message)
+                    continue  # Skip to the next file if this one doesn't exist
+
+                # Sending files via interaction or standard message
+                if ctx.interaction:
+                    await ctx.interaction.response.send_message(file=discord.File(file_path), ephemeral=True)
+                else:
+                    file_msg = await ctx.send(file=discord.File(file_path))
+                    await asyncio.sleep(5)  # Delete the file message after 5 seconds
+                    await file_msg.delete()
+
         except Exception as e:
-            print(f"Error in export command: {e}")
-            await ctx.send("An error occurred while exporting the database.")
-
-    @bot.hybrid_command(name='export_chatperms', description="Download the current chat perms")
-    @commands.has_any_role('Owner', 'Server Administrator')
-    async def export_chatperms(ctx):
-        try:
-            file_path = "nochat_channels"
-            if not os.path.exists(file_path):
-                await ctx.send("The file does not exist.")
-                return
-
-            if ctx.interaction:
-                await ctx.interaction.response.send_message(file=discord.File(file_path), ephemeral=True)
-            else:
-                file_msg = await ctx.send(file=discord.File(file_path))
-                await asyncio.sleep(5)
-                await file_msg.delete()
-        except Exception as e:
-            print(f"Error in export command: {e}")
-            await ctx.send("An error occurred while exporting the file.")
-
+            # General error handling
+            print(f"Error in export_db command: {e}")
+            await ctx.send("An error occurred while exporting the files.")
 
 
     @bot.hybrid_command(name='reload', description="Reload the bot's command tree")
@@ -519,12 +508,41 @@ def run_discord_bot():
             print(f"Error in reload command: {e}")
             await ctx.send("An error occurred while reloading the command tree.")
 
+
+    async def bump_reminder(channel):
+        await asyncio.sleep(7200)
+        await channel.send("🔔 <@&1317012335516450836> Time to bump again!")
+
+
     gamemaster_active = {}
     @bot.event
     async def on_message(message):
         if message.author == bot.user:
             return
-        # Checks if chat channel has been disabled
+
+        # Check if interaction is a Disboard Bump
+        if message.author.id == 302050872383242240:
+            if message.interaction_metadata and "Bump done!" in message.embeds[0].description:
+                user_id = message.interaction_metadata.user.id
+                created_at = message.interaction_metadata.created_at
+
+                # Add money
+                async with Client(os.getenv("U_TOKEN")) as u_client:
+                    guild = await u_client.get_guild(guild_id)
+                    user = await guild.get_user_balance(user_id)
+                    await user.update(bank=+300)
+                embed = discord.Embed(
+                    colour=discord.Colour.from_rgb(0, 0, 0),
+                    title=f"✅  Transmission Received",
+                    description=f"Your efforts have been acknowledged.\n\n"
+                                f"<:credits:1099938341467738122> **300 credits** have been authorized and added to your account.\n\n\n"
+                                f"Thanks for bumping!",
+                )
+                embed.set_image(url=r"https://64.media.tumblr.com/f62a40f90224433a506da567f2be4d23/tumblr_nzqkxdieib1rlapeio2_500.gifv")
+                await message.channel.send(embed=embed)
+                await bump_reminder(message.channel)
+
+        # Checks if chat channel has been disabled from AI
         try:
             with open('nochat_channels.pk1', 'rb') as dbfile:
                 no_chat_channels = pickle.load(dbfile)
@@ -533,7 +551,7 @@ def run_discord_bot():
             with open('nochat_channels.pk1', 'wb') as dbfile:
                 pickle.dump(no_chat_channels, dbfile)
 
-        if message.channel.id in no_chat_channels or ":" in message.content:
+        if message.channel.id in no_chat_channels:
             return
 
         if not gamemaster_active.get(message.channel.id, False):
@@ -546,24 +564,14 @@ def run_discord_bot():
                     if command:
                         await ctx.invoke(bot.get_command("chat"), prompt=prompt)
         else:
-            if message.content[0] != "(":
+            if message.content[0] != "(" and message.author.bot == True:
                 gamemaster_info = gamemaster_active[message.channel.id]
+                await asyncio.sleep(60)
                 await message.channel.send(gamemaster_chat(message.author.display_name,
                                                            message.content, message.channel.id,
                                                            gamemaster_info["character"], gamemaster_info["location"],
                                                            gamemaster_info["scenario"]))
         await bot.process_commands(message)
-
-    @bot.hybrid_command(name="export_chat", description="Download the current chat sessions")
-    @commands.has_role("Owner")
-    async def export_chat(ctx):
-        chat_sessions_file = "chat_sessions.pk1"
-        if ctx.interaction:
-            await ctx.interaction.response.send_message(file=discord.File(chat_sessions_file), ephemeral=True)
-        else:
-            file_msg = await ctx.send("Here is the exported chat sessions file:", file=discord.File(chat_sessions_file))
-            await asyncio.sleep(5)
-            await file_msg.delete()
 
     @bot.hybrid_command(name="chat", description="Chat with R0-U41!")
     @app_commands.describe(prompt="Your message")
@@ -672,9 +680,18 @@ def run_discord_bot():
     @commands.has_role("Game Master")
     async def gamemaster_start(ctx, character: str, location: str, scenario: str):
         channel_id = ctx.channel.id
+        try:
+            report_channel = bot.get_channel(991747728298225764)
+            await report_channel.send(f"**AI Gamemaster Started On** <#{channel_id}>:\nCharacter Info: {character}\n"
+                                      f"Location Info: {location}\n"
+                                      f"Scenario Info: {scenario}")
+        except:
+            pass
         gamemaster_active[channel_id] = {"character": character, "location": location, "scenario": scenario}
         await ctx.send("Gamemaster mode activated for this channel! Now listening to messages. "
-                       "Remember to use '(' when talking out of RP.", delete_after=5)
+                       "Remember to use '(' when talking out of RP.")
+        await ctx.send(gamemaster_chat(author="Gamemaster", msg="Set up the scene, environment, or situation for the player",
+                                       channel_id=channel_id, character=character, location=location, scenario=scenario))
 
     def gamemaster_chat(author, msg, channel_id, character, location, scenario):
         try:
@@ -690,20 +707,50 @@ def run_discord_bot():
         model = genai.GenerativeModel(
             "gemini-1.5-flash-latest",
             system_instruction=(
-                f"You are the Gamemaster for a Star Wars roleplay set in 2 BBY, focusing on gritty, grounded narratives "
-                f"inspired by *Rogue One* or *The Mandalorian*. Control everything except the player's character, including "
-                f"NPCs, environments, and events, to craft engaging and cinematic descriptions. Never act, speak, or make decisions "
-                f"on behalf of the player's character.\n\n"
-                f"Use immersive, concise, and gritty narration. Describe events with asterisks (*), NPC dialogue with quotes (\"\"), "
-                f"and radio communications with backticks (`). Each response should be under 1500 characters, providing vivid, cinematic "
-                f"descriptions and tangible opportunities for player reactions. Avoid questions like 'What do you want to do?' or any "
-                f"second-person phrasing ('you'). Focus on creating a dynamic world that progresses naturally based on the player's input.\n\n"
-                f"React dynamically to the player’s actions, describing realistic consequences, NPC reactions, and environmental changes. "
-                f"Avoid controlling the player or referencing canonical Star Wars characters, events, or force-related lore. If the player's "
-                f"response is unrelated or out-of-character, pause and wait for an appropriate in-character reply before continuing.\n\n"
-                f"Player's Character: {character}.\n"
-                f"Location Info: {location}.\n"
-                f"Scenario or Goal: {scenario}."
+                f"You are an AI Gamemaster for a Star Wars-inspired roleplaying server. The setting is original and excludes Force users, "
+                f"Force-related concepts, and iconic Star Wars characters. Your role is to describe the environment, NPC actions, and events "
+                f"surrounding the player, progressing the story naturally without repetition or unnecessary elaboration. Follow these guidelines:\n\n"
+
+                f"### Roleplaying Framework:\n"
+                f"1. **Narrative Style**: Write in the third person, focusing solely on describing the environment, NPCs, and story events. "
+                f"Avoid controlling the player's character's thoughts, feelings, or actions.\n"
+                f"2. **Dialogue and Formatting**:\n"
+                f"   - Use `*` to encapsulate environmental descriptions and NPC actions.\n"
+                f"   - Enclose NPC speech in `\"\"`.\n"
+                f"   - Use `` for radio communications or similar technological devices.\n"
+                f"3. **Dynamic Responses**: Provide detailed and immersive descriptions of the environment, NPCs, and events. Avoid summarizing or reiterating details "
+                f"that have already been described. Conclude each response naturally, leaving room for player decisions or actions without overemphasizing possibilities.\n\n"
+
+                f"### Behavior Guidelines:\n"
+                f"- **Engage with the Player**: React dynamically to the player's input, adapting the scenario to reflect their actions. Immerse the player by detailing how "
+                f"the world and NPCs logically respond.\n"
+                f"- **Avoid Repetition**: Do not restate environmental details, NPC traits, or sensory descriptions that have already been established unless the situation has changed.\n"
+                f"- **Balanced Rewards**: Avoid introducing high-value rewards (e.g., vaults of weapons or rare items) unless explicitly mentioned in the provided scenario.\n"
+                f"- **Diverse Names**: Use random, unique names for NPCs, factions, and locations, ensuring diversity while fitting the setting's tone. Avoid repeating names like 'Crimson Dawn' across unrelated scenarios.\n"
+                f"- **Consistent Immersion**: Maintain a Star Wars-inspired sci-fi tone without referencing Force-related concepts. Focus on themes like political intrigue, crime syndicates, mercenary groups, and galactic conflict.\n"
+                f"- **Character Limit**: Limit responses to a maximum of 1500 characters, keeping them concise, vivid, and engaging.\n"
+
+                f"### NPC and Faction Design:\n"
+                f"- Use realistic squad compositions: A typical stormtrooper squad includes one sergeant and nine troopers, though group sizes can vary depending on the context.\n"
+                f"- Ensure NPC and faction behavior aligns with the scenario. For example, a crime syndicate might prioritize stealth and manipulation, while corporate security enforces strict policies.\n"
+
+                f"### Example Interaction:\n"
+                f"**Input Variables**:\n"
+                f"- `Player's character info`: {{character}}\n"
+                f"- `Location`: {{location}}\n"
+                f"- `Scenario`: {{scenario}}\n\n"
+
+                f"**Gamemaster Prompt Example**:\n"
+                f"*The industrial sector is dimly lit, illuminated only by flickering neon signs and the orange glow of smog-choked streetlights. The air smells faintly of burnt metal and oil. "
+                f"Groups of workers in grease-stained uniforms shuffle past, their heads low as they avoid the piercing stares of corporate security drones hovering overhead. "
+                f"At the far end of the street, two heavily armed guards stand watch at a gated compound, their rifles glinting under the weak light.*\n\n"
+                f"Player Character (Jax): *Jax adjusts his cloak and moves cautiously toward the gate, his eyes scanning for security cameras.*\n"
+                f"Gamemaster (NPC): *The guards remain unaware of Jax's approach, their attention focused on a datapad one of them is reviewing. A faint hum grows louder as a patrol drone nears, its sensors sweeping the area. "
+                f"In the shadows to Jax’s right, a vagrant peers from behind a pile of crates, his expression wary but curious.*\n\n"
+
+                f"### Fallback Instructions:\n"
+                f"- If the player's input is unclear, prompt for clarification or describe a natural reaction from the environment based on their actions.\n"
+                f"- Ensure NPCs and environmental elements respond logically and consistently to maintain immersion and narrative flow."
             )
         )
 
@@ -715,7 +762,7 @@ def run_discord_bot():
                                          safety_settings={
                                               HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
                                               HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                                              HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                                              HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
                                               HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
                                          generation_config=genai.GenerationConfig(
                                              max_output_tokens=450,temperature=0.8))
@@ -735,5 +782,46 @@ def run_discord_bot():
         channel_id = ctx.channel.id
         gamemaster_active[channel_id] = False
         await ctx.send("Gamemaster mode deactivated.", delete_after=5)
+
+    @bot.hybrid_command(name="gamemaster_edit", description="Add context to the gamemaster.")
+    @app_commands.describe(
+        context="Context to add.")
+    @commands.has_role("Game Master")
+    async def gamemaster_edit(ctx, context):
+        channel_id = ctx.channel.id
+        if channel_id in gamemaster_active and gamemaster_active[channel_id]:
+            try:
+                with open('rp_sessions.pk1', 'rb') as dbfile:
+                    rp_sessions = pickle.load(dbfile)
+            except (FileNotFoundError, EOFError):
+                await ctx.send("An error occurred. Try again later.", delete_after=5)
+
+            history = rp_sessions[channel_id]
+            updated_context = f"Updated Context: {context}"
+            history.append({"role": "system", "parts": updated_context})
+            rp_sessions[channel_id] = history
+
+            with open('rp_sessions.pk1', 'wb') as dbfile:
+                pickle.dump(rp_sessions, dbfile)
+            await ctx.send("Context updated successfully.", delete_after=5)
+        else:
+            await ctx.send("The game master is not active for this channel.", delete_after=5)
+
+
+    @bot.hybrid_command(name="gamemaster_clear", description="Clear the gamemaster history for a channel. WARNING: ONLY USE WHEN NECESSARY.")
+    @commands.has_role("Game Master")
+    async def gamemaster_clear(ctx):
+        channel_id = ctx.channel.id
+        try:
+            with open('rp_sessions.pk1', 'rb') as dbfile:
+                rp_sessions = pickle.load(dbfile)
+            rp_sessions[channel_id] = []
+            with open("rp_sessions.pk1", "wb") as file:
+                pickle.dump(rp_sessions, file)
+
+            await ctx.send("Gamemaster history for this channel has been cleared successfully.")
+        except:
+            await ctx.send("An error occurred trying to clear gamemaster history. I still remember everything. Contacting <@407151046108905473>")
+
 
     bot.run(os.getenv('TOKEN'))
