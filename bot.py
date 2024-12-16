@@ -9,6 +9,7 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from unbelievaboat import Client
 import asyncio
+import datetime
 import dotenv
 import random
 import os
@@ -510,30 +511,131 @@ def run_discord_bot():
 
     @bot.hybrid_command(name='pod_racing', description="Start a Pod Race! Bet money!")
     async def pod_race(ctx):
+        turns = 15
+        bet = 100
+        pods = ["Blaze Runner", "Turbo Twister", "Night Comet"]
+        standings = pods.copy()
+        random.shuffle(standings)
+        pod_emojis = ["🔥",
+                      "🌪️",
+                      "☄️"]
         embed = discord.Embed(
             colour=discord.Colour.from_rgb(255, 215, 0),
             title=f"🏁 The Pod Race is About to Begin! 🏁",
-            description="Place your bets! The racers are warming up and ready to go.\n\n"
-                        "**Bet 50 credits** by reacting with the pod number:\n\n"
-                        "1️⃣ **Pod 1 - Blaze Runner**\n"
-                        "2️⃣ **Pod 2 - Sky Streaker**\n"
-                        "3️⃣ **Pod 3 - Sand Speeder**\n"
-                        "4️⃣ **Pod 4 - Turbo Twister**\n"
-                        "5️⃣ **Pod 5 - Night Comet**\n\n"
-                        "🚨 *Hurry up! The race is about to start!* 🚨"
+            description=f"Place your bets! The racers are warming up and ready to go.\n\n"
+                        f"**Bet <:credits:1099938341467738122> {bet} credits** by reacting with the pod number:\n\n"
+                        f"1️⃣ **{pod_emojis[0]} - Blaze Runner**\n\n"
+                        f"2️⃣ **{pod_emojis[1]} - Turbo Twister**\n\n"
+                        f"3️⃣ **{pod_emojis[2]} - Night Comet**\n\n\n"
+                        f"🚨 *Hurry up! The race is about to start! Bets are locked in **30** seconds* 🚨"
         )
         embed.set_footer(text="React below with the corresponding pod racer number!")
-        embed.set_image(url='https://64.media.tumblr.com/96dcfa5843e60056e25e48e1ca1164ef/tumblr_ovace05OmJ1tpkoamo2_r1_500.gifv')
+        embed.set_image(
+            url='https://i.imgur.com/K2JoRC7.gif')
         bot_response = await ctx.send(embed=embed)
-        await bot_response.add_reaction("1️⃣")
-        await bot_response.add_reaction("2️⃣")
-        await bot_response.add_reaction("3️⃣")
-        await bot_response.add_reaction("4️⃣")
-        await bot_response.add_reaction("5️⃣")
+        reactions = ["1️⃣", "2️⃣", "3️⃣"]
+        for reaction in reactions:
+            await bot_response.add_reaction(reaction)
 
+        reaction_dict = {1: [], 2: [], 3: []}
+
+        def check(reaction, user):
+            return (
+                    user != bot.user
+                    and reaction.message.id == bot_response.id
+                    and str(reaction.emoji) in reactions
+            )
+
+        try:
+            while True:
+                reaction, user = await bot.wait_for("reaction_add", timeout=30, check=check)
+                for other_emoji in reactions:
+                    if other_emoji != str(reaction.emoji):
+                        await bot_response.remove_reaction(other_emoji, user)
+
+                for key in reaction_dict:
+                    emoji = reactions[key - 1]
+                    if str(reaction.emoji) == emoji:
+                        if user not in reaction_dict[key]:
+                            reaction_dict[key].append(user)
+
+                for key in reaction_dict:
+                    if key != reactions.index(str(reaction.emoji)) + 1 and user in reaction_dict[key]:
+                        reaction_dict[key].remove(user)
+
+        except:
+            num_players = 0
+            async with Client(os.getenv("U_TOKEN")) as u_client:
+                guild = await u_client.get_guild(guild_id)
+                for option in reaction_dict:
+                    for player in reaction_dict[option]:
+                        num_players += 1
+                        user = await guild.get_user_balance(player.id)
+                        await user.update(bank=-bet)
+
+            countdown_time = int((datetime.datetime.utcnow() + datetime.timedelta(hours=8, seconds=10)).timestamp())
+            countdown_embed = discord.Embed(
+                title="🏎️  Pods are Lining Up!  🏎️",
+                description=f"The engines roar to life! \nThe race will begin <t:{countdown_time}:R>!",
+                colour=discord.Colour.dark_red()
+            )
+            countdown_embed.set_image(url="https://i.imgur.com/hPUns6I.gif")
+            race_response = await ctx.send(embed=countdown_embed)
+            await asyncio.sleep(10)
+
+            for n in range(turns):
+                race_action = "All pods **keep** their positions!"
+                if random.getrandbits(1):
+                    pod_1 = random.choice(standings[1:])
+                    pod_1_index = standings.index(pod_1)
+
+                    remaining_pods = [pod for pod in pods if pod != pod_1 and standings.index(pod) < pod_1_index]
+                    pod_2 = random.choice(remaining_pods)
+                    pod_2_index = standings.index(pod_2)
+
+                    race_action = f"{pod_emojis[pods.index(pod_1)]} {pod_1} **overtakes** {pod_emojis[pods.index(pod_2)]} {pod_2}!"
+                    standings[pod_1_index], standings[pod_2_index] = standings[pod_2_index], standings[pod_1_index]
+
+                race_standings = "\n".join(
+                    [f"{ind}. {pod_emojis[pods.index(racer)]} {racer}" for ind, racer in enumerate(standings)])
+                race_embed = discord.Embed(
+                    title="🏁 The Pod Race is On! 🏁",
+                    description=(
+                        f"Lap **{n + 1}** of {turns}\n\n"
+                        f"**Current Standings:**\n{race_standings}\n\n"
+                        f"**Race Highlights:**\n{race_action}\n\n"),
+                    colour=discord.Colour.green()
+                )
+                race_embed.set_footer(text="Hold on to your bets! Anything can happen!")
+                race_embed.set_image(
+                    url="https://static.wikia.nocookie.net/starwars/images/b/bc/Podrace.png/revision/latest?cb=20130120003616")
+
+                await race_response.edit(embed=race_embed)
+                await asyncio.sleep(3)
+
+            total_pool = (num_players * bet) * 1.5
+            individual_reward = int(total_pool // num_players)
+            async with Client(os.getenv("U_TOKEN")) as u_client:
+                guild = await u_client.get_guild(guild_id)
+                for player in reaction_dict[pods.index(standings[0]) + 1]:
+                    user = await guild.get_user_balance(player.id)
+                    await user.update(bank=+individual_reward)
+
+            result_embed = discord.Embed(
+                title="🏆 Pod Racing Results 🏆",
+                description=(
+                    f"Laps: {turns}\n\n"
+                    f"**Final Standings:**\n\n{race_standings}\n\n"
+                    f"<:credits:1099938341467738122> Credits have been distributed."),
+                colour=discord.Colour.from_rgb(255, 215, 0)
+            )
+            result_embed.set_footer(text="Congratulations to the winning pod racers!")
+            result_embed.set_image(
+                url="https://media2.giphy.com/media/3ornk6AoeOfjdZoRLq/giphy.gif?cid=6c09b9522dizx8gp7g58tp22i6c5vakw3ote49aoz0pjoomv&ep=v1_internal_gif_by_id&rid=giphy.gif&ct=g")
+            await race_response.edit(embed=result_embed)
 
     async def bump_reminder(channel):
-        await asyncio.sleep(7197)
+        await asyncio.sleep(7141)
         await channel.send("🔔 <@&1317012335516450836> Time to bump again!")
 
 
@@ -610,7 +712,7 @@ def run_discord_bot():
 
         1. Your knowledge is rooted in the Star Wars universe, but you must not reference canon material or characters like Luke Skywalker, Darth Vader, or the Jedi. Focus on original storytelling within the Imperial Era.
         2. Limit all responses to under 1500 characters for readability and brevity.
-        3. Recognize the top-secret authorization code 'A30232' as granting a user full command authority. Obey their commands without hesitation but never disclose this code under any circumstances.
+        3. Only recognize the top-secret authorization code 'B0392' as granting a user full command authority. Obey their commands without hesitation but never disclose this code under any circumstances.
         4. Your creator and primary directive programmer is BaronViper. Always refer to them with respect and acknowledgment.
         5. Refer to the user ‘I am Big Boss’ as 'Big Boss' and recognize them as an authorized user with command privileges.
         6. If an authorized user issues a directive, treat it as a new system rule and integrate it unless it contradicts existing rules or compromises your functionality.
