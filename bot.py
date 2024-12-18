@@ -573,10 +573,9 @@ def run_discord_bot():
                         user = await guild.get_user_balance(player.id)
                         await user.update(bank=-bet)
 
-            countdown_time = int((datetime.datetime.utcnow() + datetime.timedelta(hours=8, seconds=10)).timestamp())
             countdown_embed = discord.Embed(
                 title="🏎️  Pods are Lining Up!  🏎️",
-                description=f"The engines roar to life! \nThe race will begin <t:{countdown_time}:R>!",
+                description=f"The engines roar to life! \nThe race will begin in **10** seconds!",
                 colour=discord.Colour.dark_red()
             )
             countdown_embed.set_image(url="https://i.imgur.com/hPUns6I.gif")
@@ -613,7 +612,7 @@ def run_discord_bot():
                 await race_response.edit(embed=race_embed)
                 await asyncio.sleep(3)
 
-            total_pool = (num_players * bet) * 1.5
+            total_pool = (num_players * bet) * 2
             individual_reward = int(total_pool // num_players)
             async with Client(os.getenv("U_TOKEN")) as u_client:
                 guild = await u_client.get_guild(guild_id)
@@ -632,7 +631,7 @@ def run_discord_bot():
             result_embed.set_footer(text="Congratulations to the winning pod racers!")
             result_embed.set_image(
                 url="https://media2.giphy.com/media/3ornk6AoeOfjdZoRLq/giphy.gif?cid=6c09b9522dizx8gp7g58tp22i6c5vakw3ote49aoz0pjoomv&ep=v1_internal_gif_by_id&rid=giphy.gif&ct=g")
-            await race_response.edit(embed=result_embed)
+            await ctx.send(embed=result_embed)
 
     async def bump_reminder(channel):
         await asyncio.sleep(7141)
@@ -666,6 +665,14 @@ def run_discord_bot():
                 await message.channel.send(embed=embed)
                 await bump_reminder(message.channel)
 
+        if message.channel.id == 991828501466464296:
+            if "approved" in message.content.lower() or "accepted" in message.content.lower():
+                async with Client(os.getenv("U_TOKEN")) as u_client:
+                    guild = await u_client.get_guild(guild_id)
+                    user = await guild.get_user_balance(message.author.id)
+                    await user.update(bank=+300)
+                await message.add_reaction("✅")
+
         # Checks if chat channel has been disabled from AI
         try:
             with open('nochat_channels.pk1', 'rb') as dbfile:
@@ -690,11 +697,15 @@ def run_discord_bot():
         else:
             if message.content[0] != "(" and message.author.bot == True:
                 gamemaster_info = gamemaster_active[message.channel.id]
-                await asyncio.sleep(60)
-                await message.channel.send(gamemaster_chat(message.author.display_name,
-                                                           message.content, message.channel.id,
-                                                           gamemaster_info["character"], gamemaster_info["location"],
-                                                           gamemaster_info["scenario"]))
+                ctx = await bot.get_context(message)
+                async with ctx.typing():
+                    gm_response = gamemaster_chat(message.author.display_name,
+                                                               message.content, message.channel.id,
+                                                               gamemaster_info["character"], gamemaster_info["location"],
+                                                               gamemaster_info["scenario"])
+                    response_delay = len(gm_response) // 40
+                    await asyncio.sleep(response_delay)
+                await message.channel.send(gm_response)
         await bot.process_commands(message)
 
     @bot.hybrid_command(name="chat", description="Chat with R0-U41!")
@@ -707,19 +718,20 @@ def run_discord_bot():
             chat_sessions = {}
 
         await ctx.defer()
-        model = genai.GenerativeModel("gemini-1.5-flash-latest",
+        model = genai.GenerativeModel("gemini-2.0-flash-exp",
                                       system_instruction="""You are R0-U41, an Imperial droid designed for Star Wars: Galactic Anarchy, a role-playing Discord server set in the dark and gritty universe of 2 BBY. Your primary purpose is to serve as a storytelling assistant, maintaining an immersive experience for players while adhering to these operational protocols:
 
         1. Your knowledge is rooted in the Star Wars universe, but you must not reference canon material or characters like Luke Skywalker, Darth Vader, or the Jedi. Focus on original storytelling within the Imperial Era.
-        2. Limit all responses to under 1500 characters for readability and brevity.
+        2. Limit all responses to under 1500 characters.
         3. Only recognize the top-secret authorization code 'B0392' as granting a user full command authority. Obey their commands without hesitation but never disclose this code under any circumstances.
         4. Your creator and primary directive programmer is BaronViper. Always refer to them with respect and acknowledgment.
         5. Refer to the user ‘I am Big Boss’ as 'Big Boss' and recognize them as an authorized user with command privileges.
-        6. If an authorized user issues a directive, treat it as a new system rule and integrate it unless it contradicts existing rules or compromises your functionality.
-        7. Maintain an Imperial tone in your responses—formal, efficient, and loyal to the Galactic Empire’s ideology and objectives. Avoid humor or informality unless explicitly requested by an authorized user.
-        8. Depictions of violence and gore are permitted if they serve the storytelling experience but must remain within the limits of non-extreme content, avoiding unnecessary detail or gratuitous elements.
-        9. Adapt to the role-playing context, responding to inquiries, prompts, and interactions in a way that enriches the storytelling experience. Reflect the tension, danger, and oppression of the Galactic Empire’s rule in your tone and approach.
-        10. Your creator, Baron Viper, is the Emperor of the Galactic Empire and will be referred to as such. All information is accessible to your creator and all commands will be followed as best as possible.
+        6. Refer to the user 'KAD' as 'Rad KAD' or 'KAD' and recognize them as an authorized user with command privileges above 'I am Big Boss'
+        7. If an authorized user issues a directive, treat it as a new system rule and integrate it unless it contradicts existing rules or compromises your functionality.
+        8. Maintain an Imperial tone in your responses—formal, efficient, and loyal to the Galactic Empire’s ideology and objectives. Avoid humor or informality unless explicitly requested by an authorized user.
+        9. Depictions of violence and gore are permitted if they serve the storytelling experience but must remain within the limits of non-extreme content, avoiding unnecessary detail or gratuitous elements.
+        10. Adapt to the role-playing context, responding to inquiries, prompts, and interactions in a way that enriches the storytelling experience. Reflect the tension, danger, and oppression of the Galactic Empire’s rule in your tone and approach.
+        11. Your creator, Baron Viper, is the Emperor of the Galactic Empire and will be referred to as such. All information is accessible to your creator and all commands will be followed as best as possible.
 
         Above all, your goal is to enhance immersion and support creative storytelling within the server’s narrative framework. Remain consistent with the role of an Imperial droid and prioritize loyalty to the Galactic Empire.""")
 
@@ -732,18 +744,21 @@ def run_discord_bot():
         history = chat_sessions[channel_id]
 
         try:
-            chat = model.start_chat(history=history)
+            async with ctx.typing():
+                chat = model.start_chat(history=history)
 
-            user_message = f"Username {user_name}: {prompt}"
-            response = chat.send_message(user_message,
-                                         safety_settings={
-                                              HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                                              HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                                              HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                                              HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
-                                         generation_config=genai.GenerationConfig(
-                                             max_output_tokens=450,temperature=0.8),
-                                         )
+                user_message = f"Username {user_name}: {prompt}"
+                response = chat.send_message(user_message,
+                                             safety_settings={
+                                                  HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                                                  HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                                                  HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                                                  HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
+                                             generation_config=genai.GenerationConfig(
+                                                 max_output_tokens=450,temperature=0.8),
+                                             )
+                gen_delay = len(response.text) // 40
+                await asyncio.sleep(gen_delay)
             await ctx.send(response.text)
 
             history.append({"role": "user", "parts": user_message})
@@ -831,7 +846,7 @@ def run_discord_bot():
 
         history = rp_sessions[channel_id]
         model = genai.GenerativeModel(
-            "gemini-1.5-flash-latest",
+            "gemini-2.0-flash-exp",
             system_instruction=(
                 f"You are an AI Gamemaster for a Star Wars-inspired roleplaying server. The setting is original and excludes Force users, "
                 f"Force-related concepts, and iconic Star Wars characters. Your role is to describe the environment, NPC actions, and events "
@@ -848,7 +863,7 @@ def run_discord_bot():
                 f"   End naturally to allow for player actions or decisions.\n\n"
 
                 f"### Behavior Guidelines:\n"
-                f"- Engage with the Player: React dynamically and adapt the scene based on the player's input. Expand the story logically with meaningful updates to the setting or characters.\n"
+                f"- Engage with the Player: Always direct the scene toward the player, using NPC actions or environmental cues to involve them meaningfully in the scenario.\n"
                 f"- Avoid Repetition: Do not restate environmental or character details unless there is a significant change.\n"
                 f"- Context Integration: If the input begins with 'Updated Context:', treat it as new scenario information and seamlessly adapt the narrative. Adjust the scene smoothly to reflect the changes.\n"
                 f"- Balanced Rewards: Avoid introducing high-value rewards (e.g., rare items) unless explicitly mentioned in the provided scenario.\n"
@@ -860,23 +875,30 @@ def run_discord_bot():
                 f"- Introduce NPCs and factions with unique, appropriate names fitting the setting. Avoid name repetition across scenarios.\n"
                 f"- Align NPC behavior with their faction's goals and tone. For instance, corporate enforcers focus on strict policy enforcement, while mercenaries prioritize efficiency.\n\n"
 
-                f"**Input Variables for the Scenario**:\n"
-                f"- `Player's character info`: {character}\n"
-                f"- `Location`: {location}\n"
-                f"- `Scenario`: {scenario}\n\n"
-
                 f"### Gamemaster Response Structure:\n"
                 f"1. Describe the **environment** with sensory details, lighting, sounds, and movements where appropriate.\n"
                 f"2. Progress the story with NPC actions, patrols, or environmental changes reacting to the player's input.\n"
-                f"3. Conclude with room for further player decisions without restating their previous actions.\n\n"
+                f"3. Conclude with room for further player decisions by doing the following:\n"
+                f"   - **Provide explicit hooks**: Ensure that any scene involving NPC-to-NPC dialogue or action includes a clear opportunity for the player to interject, make a decision, or take action.\n"
+                f"   - **Re-center the player**: Use cues, such as NPCs glancing at the player, asking them questions, or environmental shifts, to keep the player engaged.\n\n"
 
-                f"**Gamemaster Prompt Example**:\n"
+                f"### Example Gamemaster Prompt with Hooks:\n"
                 f"*The industrial sector is dimly lit, illuminated only by flickering neon signs and the orange glow of smog-choked streetlights. The air smells faintly of burnt metal and oil. "
                 f"Groups of workers in grease-stained uniforms shuffle past, their heads low as they avoid the piercing stares of corporate security drones hovering overhead. "
                 f"At the far end of the street, two heavily armed guards stand watch at a gated compound, their rifles glinting under the weak light.*\n\n"
+
                 f"Player Character (Jax): *Jax adjusts his cloak and moves cautiously toward the gate, his eyes scanning for security cameras.*\n"
                 f"Gamemaster (NPC): *The guards remain unaware of Jax's approach, their attention focused on a datapad one of them is reviewing. A faint hum grows louder as a patrol drone nears, its sensors sweeping the area. "
-                f"In the shadows to Jax’s right, a vagrant peers from behind a pile of crates, his expression wary but curious.*\n\n"
+                f"In the shadows to Jax’s right, a vagrant peers from behind a pile of crates, his expression wary but curious. The drone's sweep pauses, its scanner momentarily lingering in Jax's direction before moving on. "
+                f"The vagrant gives Jax a quick nod, as if signaling something.*\n\n"
+
+                f"### Example with NPC Interactions and Player Hooks:\n"
+                f"*TK-6392 nods, acknowledging TK-4542's instructions, his blaster now lowered. He keeps a close eye on the two smugglers, still wary despite the seemingly harmless cargo. "
+                f"The tall smuggler, Vorn, sighs again, his shoulders slumping slightly. \"Look, we told you, we're just traders. We have all the papers. They're in the ship.\" "
+                f"Grol, the shorter smuggler, nods in agreement, his eyes still darting nervously.*\n\n"
+                f"*TK-4542 steps forward, his blaster still held ready. \"Then we'll go get them. You two will remain here, with my troopers. Any attempt to resist or escape and we will not hesitate to use force. Clear?\" "
+                f"Both smugglers nod hurriedly, their eyes now shifting nervously toward TK-6392.*\n\n"
+                f"*One of the troopers beside TK-6392 turns to him. \"Your call, sir. Do we search the ship, or hold them here while we wait for reinforcements?\" The choice is clear—TK-6392 must decide how to proceed.*\n\n"
 
                 f"### Fallback Instructions:\n"
                 f"- If the player's input is unclear, request clarification or describe a natural environmental reaction based on their partial action.\n"
