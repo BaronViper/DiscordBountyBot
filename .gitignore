@@ -1,2 +1,7 @@
 .env
 info.db
+chat_sessions.pk1
+nochat_channels.pk1
+rp_sessions.pk1
+discloud.config
+vercel.json

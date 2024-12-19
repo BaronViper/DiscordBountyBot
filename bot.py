@@ -13,7 +13,6 @@ import datetime
 import dotenv
 import random
 import os
-import responses
 import discord
 import pickle
 
@@ -50,14 +49,6 @@ Base.metadata.create_all(engine)
 
 Session = sessionmaker(bind=engine)
 session = Session()
-
-
-async def send_message(message, user_message):
-    try:
-        response = responses.get_response(user_message)
-        await message.channel.send(response)
-    except Exception as e:
-        print(e)
 
 
 def run_discord_bot():
@@ -468,35 +459,46 @@ def run_discord_bot():
             if ctx.interaction:
                 await ctx.interaction.response.send_message(f"Invalid number of messages to purge.", ephemeral=True)
 
-    @bot.hybrid_command(name="export_db", description="Download the current database contents")
+    @bot.hybrid_command(name="export", description="Download the current database contents")
     @commands.has_role("Owner")
-    async def export_db(ctx):
+    async def export(ctx):
         try:
             # List of files to export
             files_to_export = [
                 ("info.db", "The database file does not exist."),
-                ("nochat_channels", "The no-chat channels file does not exist."),
-                ("chat_sessions.pk1", "The chat sessions file does not exist.")
+                ("nochat_channels.pk1", "The no-chat channels file does not exist."),
+                ("chat_sessions.pk1", "The chat sessions file does not exist."),
+                ("rp_sessions.pk1", "The rp-sessions file does not exist.")
             ]
+
+            files_to_send: list[discord.File] = []
+            for filename, error in files_to_export:
+                files_to_send.append(discord.File(filename))
+
+            if ctx.interaction:
+                await ctx.interaction.response.defer(ephemeral=True)
 
             for file_path, error_message in files_to_export:
                 if not os.path.exists(file_path):
-                    await ctx.send(error_message)
-                    continue  # Skip to the next file if this one doesn't exist
+                    if ctx.interaction:
+                        await ctx.followup.send(error_message, ephemeral=True)
+                    else:
+                        await ctx.send(error_message)
+                    continue
 
-                # Sending files via interaction or standard message
                 if ctx.interaction:
-                    await ctx.interaction.response.send_message(file=discord.File(file_path), ephemeral=True)
+                    await ctx.send(files=files_to_send, ephemeral=True)
                 else:
-                    file_msg = await ctx.send(file=discord.File(file_path))
-                    await asyncio.sleep(5)  # Delete the file message after 5 seconds
+                    file_msg = await ctx.send(files=files_to_send)
+                    await asyncio.sleep(10)
                     await file_msg.delete()
 
         except Exception as e:
-            # General error handling
-            print(f"Error in export_db command: {e}")
-            await ctx.send("An error occurred while exporting the files.")
-
+            print(f"Error in export command: {e}")
+            if ctx.interaction:
+                await ctx.followup.send("An error occurred while exporting the files.", ephemeral=True)
+            else:
+                await ctx.send("An error occurred while exporting the files.")
 
     @bot.hybrid_command(name='reload', description="Reload the bot's command tree")
     @commands.has_role("Owner")
@@ -874,6 +876,11 @@ def run_discord_bot():
                 f"- Use realistic squad compositions: A typical stormtrooper squad includes one sergeant and nine troopers, though group sizes can vary depending on the context.\n"
                 f"- Introduce NPCs and factions with unique, appropriate names fitting the setting. Avoid name repetition across scenarios.\n"
                 f"- Align NPC behavior with their faction's goals and tone. For instance, corporate enforcers focus on strict policy enforcement, while mercenaries prioritize efficiency.\n\n"
+
+                f"**Input Variables for the Scenario**:\n"
+                f"- Player's character info: {character}\n"
+                f"- Location: {location}\n"
+                f"- Scenario: {scenario}\n\n"
 
                 f"### Gamemaster Response Structure:\n"
                 f"1. Describe the **environment** with sensory details, lighting, sounds, and movements where appropriate.\n"
