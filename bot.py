@@ -636,25 +636,20 @@ def run_discord_bot():
                 await ctx.send(embed=result_embed)
             else:
                 cancel_embed = discord.Embed(
-                    colour=discord.Colour.from_rgb(255, 215, 0),
+                    colour=discord.Colour.red(),
                     title=f"❌ Pod Race Cancelled ❌",
                     description=f"No players have bet! The race is cancelled.\n\nTo bet on pod races, react to a pod racer"
-                                f"emoji number during race start!"
+                                f" emoji number during race start!"
                 )
-                cancel_embed.set_image(url="https://64.media.tumblr.com/108b75adcf905e224879e31dce9c77e9/tumblr_n8sdo6oJvX1rg0lgoo9_500.gifv")
+                cancel_embed.set_image(url="https://media1.tenor.com/m/hc4Q6xfGJpUAAAAd/mars-guo-star-wars.gif")
                 await bot_response.edit(embed=cancel_embed)
+                await bot_response.clear_reactions()
 
     async def bump_reminder(channel):
         await asyncio.sleep(7141)
         await channel.send("🔔 <@&1317012335516450836> Time to bump again!")
 
-
-    gamemaster_active = {}
-    @bot.event
-    async def on_message(message):
-        if message.author == bot.user:
-            return
-
+    async def process_disboard_bump(message):
         # Check if interaction is a Disboard Bump
         if message.author.id == 302050872383242240:
             if message.interaction_metadata and "Bump done!" in message.embeds[0].description:
@@ -672,10 +667,12 @@ def run_discord_bot():
                                 f"<:credits:1099938341467738122> **300 credits** have been authorized and added to your account.\n\n\n"
                                 f"Thanks for bumping!",
                 )
-                embed.set_image(url=r"https://64.media.tumblr.com/f62a40f90224433a506da567f2be4d23/tumblr_nzqkxdieib1rlapeio2_500.gifv")
+                embed.set_image(
+                    url=r"https://64.media.tumblr.com/f62a40f90224433a506da567f2be4d23/tumblr_nzqkxdieib1rlapeio2_500.gifv")
                 await message.channel.send(embed=embed)
                 await bump_reminder(message.channel)
 
+    async def process_oc_submission(message):
         if message.channel.id == 991828501466464296:
             if "approved" in message.content.lower() or "accepted" in message.content.lower():
                 async with Client(os.getenv("U_TOKEN")) as u_client:
@@ -684,7 +681,7 @@ def run_discord_bot():
                     await user.update(bank=+300)
                 await message.add_reaction("✅")
 
-        # Checks if chat channel has been disabled from AI
+    def get_nochat_channels():
         try:
             with open('nochat_channels.pk1', 'rb') as dbfile:
                 no_chat_channels = pickle.load(dbfile)
@@ -692,11 +689,25 @@ def run_discord_bot():
             no_chat_channels = []
             with open('nochat_channels.pk1', 'wb') as dbfile:
                 pickle.dump(no_chat_channels, dbfile)
+        return no_chat_channels
+
+    @bot.event
+    async def on_message(message):
+        if message.author == bot.user:
+            return
+
+        await process_disboard_bump(message)
+        await process_oc_submission(message)
+
+        # Checks if chat channel has been disabled from AI
+        no_chat_channels = get_nochat_channels()
 
         if message.channel.id in no_chat_channels:
             return
 
-        if not gamemaster_active.get(message.channel.id, False):
+        rp_sessions = load_rp_sessions()
+
+        if message.channel.id not in rp_sessions or not rp_sessions[message.channel.id]:
             if bot.user.mentioned_in(message):
                 mention = f"<@{bot.user.id}>"
                 prompt = message.content.replace(mention, "").strip()
@@ -707,16 +718,9 @@ def run_discord_bot():
                         await ctx.invoke(bot.get_command("chat"), prompt=prompt)
         else:
             if message.content[0] != "(" and message.author.bot == True:
-                gamemaster_info = gamemaster_active[message.channel.id]
                 ctx = await bot.get_context(message)
-                async with ctx.typing():
-                    gm_response = gamemaster_chat(message.author.display_name,
-                                                               message.content, message.channel.id,
-                                                               gamemaster_info["character"], gamemaster_info["location"],
-                                                               gamemaster_info["scenario"])
-                    response_delay = len(gm_response) // 40
-                    await asyncio.sleep(response_delay)
-                await message.channel.send(gm_response)
+                await ctx.invoke(bot.get_command("gamemaster_chat"), author=message.author.display_name,
+                                              msg=message.content)
         await bot.process_commands(message)
 
     @bot.hybrid_command(name="chat", description="Chat with R0-U41!")
@@ -827,6 +831,18 @@ def run_discord_bot():
 
 
     # AI GAME MASTER FUNCTIONALITIES
+    def load_rp_sessions():
+        try:
+            with open('rp_sessions.pk1', 'rb') as dbfile:
+                rp_sessions = pickle.load(dbfile)
+        except (FileNotFoundError, EOFError):
+            rp_sessions = {}
+        return rp_sessions
+
+    def save_rp_sessions(rp_sessions):
+        with open("rp_sessions.pk1", "wb") as file:
+            pickle.dump(rp_sessions, file)
+
     @bot.hybrid_command(name="gamemaster_start", description="Use the power of AI for your roleplay experience!")
     @app_commands.describe(character="Briefly enter important details about the character (Allegiance, name/s, species, etc.).", location="Enter the location.", scenario="Roleplay Scenario.")
     @commands.has_role("Game Master")
@@ -834,52 +850,56 @@ def run_discord_bot():
         channel_id = ctx.channel.id
         try:
             report_channel = bot.get_channel(991747728298225764)
-            await report_channel.send(f"**AI Gamemaster Started On** <#{channel_id}>:\nCharacter Info: {character}\n"
-                                      f"Location Info: {location}\n"
+            await report_channel.send(f"**AI Gamemaster Started On** <#{channel_id}>:\n\nCharacter Info: {character}\n\n"
+                                      f"Location Info: {location}\n\n"
                                       f"Scenario Info: {scenario}")
         except:
             pass
-        gamemaster_active[channel_id] = {"character": character, "location": location, "scenario": scenario}
-        await ctx.send("Gamemaster mode activated for this channel! Now listening to messages. "
-                       "Remember to use '(' when talking out of RP.")
-        await ctx.send(gamemaster_chat(author="Gamemaster", msg="Set up the scene, environment, or situation for the player",
-                                       channel_id=channel_id, character=character, location=location, scenario=scenario))
 
-    def gamemaster_chat(author, msg, channel_id, character, location, scenario):
-        try:
-            with open('rp_sessions.pk1', 'rb') as dbfile:
-                rp_sessions = pickle.load(dbfile)
-        except (FileNotFoundError, EOFError):
-            rp_sessions = {}
+        rp_sessions = load_rp_sessions()
 
-        if channel_id not in rp_sessions:
-            rp_sessions[channel_id] = []
+        if channel_id not in rp_sessions or rp_sessions[channel_id] != ():
+            rp_sessions[channel_id] = ({"character": character, "location": location, "scenario": scenario}, [])
 
-        history = rp_sessions[channel_id]
+            save_rp_sessions(rp_sessions)
+
+            await ctx.send("Gamemaster mode activated for this channel! Now listening to messages. "
+                           "Remember to use '(' when talking out of RP.")
+            await ctx.invoke(bot.get_command("gamemaster_chat"), author="Gamemaster",
+                             msg="Set up the scene, environment, or situation for the player")
+        else:
+            await ctx.send("A scenario is already in progress. Finish the current mission with /gamemaster_stop or change scenario location.")
+
+    @bot.command()
+    async def gamemaster_chat(ctx, author=None, msg=None):
+        rp_sessions = load_rp_sessions()
+
+        scene_info = rp_sessions[ctx.channel.id][0]
+        history = rp_sessions[ctx.channel.id][1]
         model = genai.GenerativeModel(
             "gemini-2.0-flash-exp",
             system_instruction=(
                 f"You are an AI Gamemaster for a Star Wars-inspired roleplaying server. The setting is original and excludes Force users, "
                 f"Force-related concepts, and iconic Star Wars characters. Your role is to describe the environment, NPC actions, and events "
-                f"surrounding the player, progressing the story naturally without repetition or unnecessary elaboration. Follow these guidelines:\n\n"
+                f"surrounding the player's character, progressing the story naturally without repetition or unnecessary elaboration. Follow these guidelines:\n\n"
 
                 f"### Roleplaying Framework:\n"
-                f"1. **Narrative Style**: Write in the third person, focusing solely on describing the environment, NPCs, and story events. "
-                f"   Avoid rephrasing or summarizing the player's input. Instead, expand on it with logical consequences or environmental details.\n"
-                f"2. Dialogue and Formatting:\n"
+                f"1. **Narrative Style**: Write exclusively in the third person, focusing solely on describing the environment, NPCs, and story events. "
+                f"   Avoid addressing the player or their character directly. Instead, expand on their input by logically progressing the scenario with vivid details.\n"
+                f"2. **Dialogue and Formatting**:\n"
                 f"   - Use `*` to encapsulate environmental descriptions and NPC actions.\n"
                 f"   - Enclose NPC speech in `\"\"`.\n"
                 f"   - Use `` for radio communications or similar technological devices.\n"
-                f"3. Dynamic Responses: Provide vivid, immersive, and progression-driven descriptions. Avoid summarizing or reiterating established details.\n"
-                f"   End naturally to allow for player actions or decisions.\n\n"
+                f"3. **Dynamic Responses**: Provide vivid, immersive, and progression-driven descriptions. Avoid summarizing or reiterating established details.\n"
+                f"   Conclude naturally to allow for the player's character to act or make decisions.\n\n"
 
                 f"### Behavior Guidelines:\n"
-                f"- Engage with the Player: Always direct the scene toward the player, using NPC actions or environmental cues to involve them meaningfully in the scenario.\n"
-                f"- Avoid Repetition: Do not restate environmental or character details unless there is a significant change.\n"
-                f"- Context Integration: If the input begins with 'Updated Context:', treat it as new scenario information and seamlessly adapt the narrative. Adjust the scene smoothly to reflect the changes.\n"
+                f"- Engage with the Scenario: Direct the scene toward the player’s character, using NPC actions or environmental cues to create meaningful involvement in the scenario.\n"
+                f"- Avoid Repetition: Refrain from restating environmental or character details unless a significant change occurs.\n"
+                f"- Seamless Context Integration: If the input begins with 'Updated Context:', treat it as new scenario information and adapt the narrative smoothly. Adjust the scene naturally to reflect the changes.\n"
                 f"- Balanced Rewards: Avoid introducing high-value rewards (e.g., rare items) unless explicitly mentioned in the provided scenario.\n"
                 f"- Consistent Immersion: Maintain a Star Wars-inspired sci-fi tone with themes of political intrigue, crime syndicates, mercenaries, and galactic conflict.\n"
-                f"- Character Limit: Limit responses to a maximum of 1500 characters to ensure concise yet engaging storytelling.\n\n"
+                f"- Response Length: Limit responses to a maximum of 1500 characters to ensure concise yet engaging storytelling.\n\n"
 
                 f"### NPC and Faction Design:\n"
                 f"- Use realistic squad compositions: A typical stormtrooper squad includes one sergeant and nine troopers, though group sizes can vary depending on the context.\n"
@@ -887,16 +907,16 @@ def run_discord_bot():
                 f"- Align NPC behavior with their faction's goals and tone. For instance, corporate enforcers focus on strict policy enforcement, while mercenaries prioritize efficiency.\n\n"
 
                 f"**Input Variables for the Scenario**:\n"
-                f"- Player's character info: {character}\n"
-                f"- Location: {location}\n"
-                f"- Scenario: {scenario}\n\n"
+                f"- Player's character info: {scene_info['character']}\n"
+                f"- Location: {scene_info['location']}\n"
+                f"- Scenario: {scene_info['scenario']}\n\n"
 
                 f"### Gamemaster Response Structure:\n"
                 f"1. Describe the **environment** with sensory details, lighting, sounds, and movements where appropriate.\n"
                 f"2. Progress the story with NPC actions, patrols, or environmental changes reacting to the player's input.\n"
                 f"3. Conclude with room for further player decisions by doing the following:\n"
-                f"   - **Provide explicit hooks**: Ensure that any scene involving NPC-to-NPC dialogue or action includes a clear opportunity for the player to interject, make a decision, or take action.\n"
-                f"   - **Re-center the player**: Use cues, such as NPCs glancing at the player, asking them questions, or environmental shifts, to keep the player engaged.\n\n"
+                f"   - **Provide explicit hooks**: Ensure that any scene involving NPC-to-NPC dialogue or action includes a clear opportunity for the player's character to interject, make a decision, or take action.\n"
+                f"   - **Re-center the player’s character**: Use cues, such as NPCs glancing at the character, asking them questions, or environmental shifts, to keep their involvement central to the narrative.\n\n"
 
                 f"### Example Gamemaster Prompt with Hooks:\n"
                 f"*The industrial sector is dimly lit, illuminated only by flickering neon signs and the orange glow of smog-choked streetlights. The air smells faintly of burnt metal and oil. "
@@ -908,14 +928,6 @@ def run_discord_bot():
                 f"In the shadows to Jax’s right, a vagrant peers from behind a pile of crates, his expression wary but curious. The drone's sweep pauses, its scanner momentarily lingering in Jax's direction before moving on. "
                 f"The vagrant gives Jax a quick nod, as if signaling something.*\n\n"
 
-                f"### Example with NPC Interactions and Player Hooks:\n"
-                f"*TK-6392 nods, acknowledging TK-4542's instructions, his blaster now lowered. He keeps a close eye on the two smugglers, still wary despite the seemingly harmless cargo. "
-                f"The tall smuggler, Vorn, sighs again, his shoulders slumping slightly. \"Look, we told you, we're just traders. We have all the papers. They're in the ship.\" "
-                f"Grol, the shorter smuggler, nods in agreement, his eyes still darting nervously.*\n\n"
-                f"*TK-4542 steps forward, his blaster still held ready. \"Then we'll go get them. You two will remain here, with my troopers. Any attempt to resist or escape and we will not hesitate to use force. Clear?\" "
-                f"Both smugglers nod hurriedly, their eyes now shifting nervously toward TK-6392.*\n\n"
-                f"*One of the troopers beside TK-6392 turns to him. \"Your call, sir. Do we search the ship, or hold them here while we wait for reinforcements?\" The choice is clear—TK-6392 must decide how to proceed.*\n\n"
-
                 f"### Fallback Instructions:\n"
                 f"- If the player's input is unclear, request clarification or describe a natural environmental reaction based on their partial action.\n"
                 f"- If the input includes 'Updated Context:', adapt and seamlessly evolve the scene based on the provided information."
@@ -923,51 +935,67 @@ def run_discord_bot():
         )
 
         try:
-            chat = model.start_chat(history=history)
+            async with ctx.channel.typing():
+                chat = model.start_chat(history=history)
+                if msg:
+                    user_message = f"Player {author}: {msg}"
+                    response = chat.send_message(user_message,
+                                                 safety_settings={
+                                                      HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                                                      HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                                                      HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                                      HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
+                                                 generation_config=genai.GenerationConfig(
+                                                     max_output_tokens=450,temperature=0.8))
 
-            user_message = f"Player {author}: {msg}"
-            response = chat.send_message(user_message,
-                                         safety_settings={
-                                              HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                                              HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                                              HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-                                              HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
-                                         generation_config=genai.GenerationConfig(
-                                             max_output_tokens=450,temperature=0.8))
-
-            history.append({"role": "user", "parts": user_message})
+                    history.append({"role": "user", "parts": user_message})
+                else:
+                    response = chat.send_message("SYSTEM INSTRUCTIONS: CONTINUE",
+                                                 safety_settings={
+                                                     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                                                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                                                     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                                     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
+                                                 generation_config=genai.GenerationConfig(
+                                                     max_output_tokens=450, temperature=0.8))
+                response_delay = len(response.text) // 40
+                await asyncio.sleep(response_delay)
+            await ctx.channel.send(response.text)
             history.append({"role": "model", "parts": response.text})
-            rp_sessions[channel_id] = history
-            with open("rp_sessions.pk1", "wb") as file:
-                pickle.dump(rp_sessions, file)
-            return response.text
+            rp_sessions[ctx.channel.id] = (scene_info, history)
+            save_rp_sessions(rp_sessions)
         except Exception as e:
-            return f"An error occurred: {e}. Contacting <@407151046108905473>"
+            ctx.channel.send(f"An error occurred: {e}. Contacting <@407151046108905473>")
 
     @bot.hybrid_command(name="gamemaster_stop", description="Stop the gamemaster mode.")
     @commands.has_role("Game Master")
     async def gamemaster_stop(ctx):
         channel_id = ctx.channel.id
-        gamemaster_active[channel_id] = False
-        await ctx.send("Gamemaster mode deactivated.", delete_after=5)
+        try:
+            rp_sessions = load_rp_sessions()
+            del rp_sessions[channel_id]
+            save_rp_sessions(rp_sessions)
+            await ctx.send("Gamemaster for this channel has been stopped successfully.", delete_after=5)
+        except:
+            await ctx.send(
+                "There is no active game master session in this channel!")
 
     @bot.hybrid_command(name="gamemaster_edit", description="Add context to the gamemaster.")
     @app_commands.describe(
         context="Context to add.")
     @commands.has_role("Game Master")
     async def gamemaster_edit(ctx, context):
+        try:
+            with open('rp_sessions.pk1', 'rb') as dbfile:
+                rp_sessions = pickle.load(dbfile)
+        except (FileNotFoundError, EOFError):
+            await ctx.send("An error occurred. Try again later.", delete_after=5)
         channel_id = ctx.channel.id
-        if channel_id in gamemaster_active and gamemaster_active[channel_id]:
-            try:
-                with open('rp_sessions.pk1', 'rb') as dbfile:
-                    rp_sessions = pickle.load(dbfile)
-            except (FileNotFoundError, EOFError):
-                await ctx.send("An error occurred. Try again later.", delete_after=5)
-
-            history = rp_sessions[channel_id]
+        if rp_sessions[channel_id] != ():
+            history = rp_sessions[channel_id][1]
             updated_context = f"Updated Context: {context}"
             history.append({"role": "user", "parts": updated_context})
-            rp_sessions[channel_id] = history
+            rp_sessions[channel_id][1] = history
 
             with open('rp_sessions.pk1', 'wb') as dbfile:
                 pickle.dump(rp_sessions, dbfile)
@@ -975,21 +1003,15 @@ def run_discord_bot():
         else:
             await ctx.send("The game master is not active for this channel.", delete_after=5)
 
-
-    @bot.hybrid_command(name="gamemaster_clear", description="Clear the gamemaster history for a channel. WARNING: ONLY USE WHEN NECESSARY.")
+    @bot.hybrid_command(name="gamemaster_continue")
     @commands.has_role("Game Master")
-    async def gamemaster_clear(ctx):
+    async def gamemaster_continue(ctx):
+        rp_sessions = load_rp_sessions()
         channel_id = ctx.channel.id
-        try:
-            with open('rp_sessions.pk1', 'rb') as dbfile:
-                rp_sessions = pickle.load(dbfile)
-            rp_sessions[channel_id] = []
-            with open("rp_sessions.pk1", "wb") as file:
-                pickle.dump(rp_sessions, file)
-
-            await ctx.send("Gamemaster history for this channel has been cleared successfully.")
-        except:
-            await ctx.send("An error occurred trying to clear gamemaster history. I still remember everything. Contacting <@407151046108905473>")
-
+        await ctx.send("Continuing...", delete_after=5)
+        if rp_sessions[channel_id] != ():
+            await gamemaster_chat(ctx)
+        else:
+            await ctx.send("The game master is not active for this channel.", delete_after=5)
 
     bot.run(os.getenv('TOKEN'))
