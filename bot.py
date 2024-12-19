@@ -1,6 +1,6 @@
 from discord import app_commands
 from discord.ext import commands, tasks
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, asc
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, String, Boolean
@@ -159,7 +159,7 @@ def run_discord_bot():
         ]
     )
     async def mission_status(ctx, m_id: int, faction: app_commands.Choice[str]):
-        targeted_mission = session.query(Missions).filter_by(faction=faction.value).all()[m_id-1]
+        targeted_mission = session.query(Missions).filter_by(faction=faction.value).order_by(asc(Missions.reward)).all()[m_id-1]
         if targeted_mission:
             if targeted_mission.availability == "Available":
                 targeted_mission.availability = "In Progress"
@@ -195,7 +195,7 @@ def run_discord_bot():
         targeted_mission = None
         status_pass = True
 
-        targeted_mission = session.query(Missions).filter_by(faction=faction.value).all()[m_id-1]
+        targeted_mission = session.query(Missions).filter_by(faction=faction.value).order_by(asc(Missions.reward)).all()[m_id-1]
         if targeted_mission:
             if mission_field.value == 'Title':
                 mission_value = ' '.join(x.capitalize() for x in mission_value.split())
@@ -298,7 +298,7 @@ def run_discord_bot():
         app_commands.Choice(name="Mandalorian", value="Mandalorian"),
     ])
     async def all_missions(ctx, faction: app_commands.Choice[str]):
-        missions = session.query(Missions).filter_by(faction=faction.value).all()
+        missions = session.query(Missions).filter_by(faction=faction.value).order_by(asc(Missions.reward)).all()
         embed_description = ""
         for idx, mission in enumerate(missions, start=1):
             description_str = str(mission.description)
@@ -345,7 +345,7 @@ def run_discord_bot():
         if m_id not in range(1, 11):
             await ctx.send("Invalid mission ID. Enter an ID number from 1-10")
         else:
-            mission = session.query(Missions).filter_by(faction=faction.value).all()[m_id - 1]
+            mission = session.query(Missions).filter_by(faction=faction.value).order_by(asc(Missions.reward)).all()[m_id - 1]
             embed = discord.Embed(
                 colour=discord.Colour.from_rgb(0, 0, 0),
                 title=f"=== {faction.value} Mission Info - ID: {m_id} ===",
@@ -414,7 +414,7 @@ def run_discord_bot():
         if m_id not in range(1, 11):
             await ctx.send("Invalid mission ID. Enter an ID number from 1-10")
         else:
-            mission = session.query(Missions).filter_by(faction=faction.value).all()[m_id - 1]
+            mission = session.query(Missions).filter_by(faction=faction.value).order_by(asc(Missions.reward)).all()[m_id - 1]
             embed = discord.Embed(
                 colour=discord.Colour.from_rgb(0, 0, 0),
                 title=f"=== Delete {faction.value} Mission - ID: {m_id} ===",
@@ -446,11 +446,11 @@ def run_discord_bot():
 
     @bot.hybrid_command(name="purge", description="Deletes up to 20 messages")
     @commands.has_role("Staff")
-    @app_commands.describe(num="Number of messages to delete (Maximum of 20)")
+    @app_commands.describe(num="Number of messages to delete (Maximum of 50)")
     async def purge(ctx, num:int):
         if num > 0:
-            if num > 20:
-                num = 20
+            if num > 50:
+                num = 50
 
             if ctx.interaction:
                 await ctx.interaction.response.send_message(f"Purged {num} messages 🗑️", ephemeral=True)
@@ -574,66 +574,75 @@ def run_discord_bot():
                         num_players += 1
                         user = await guild.get_user_balance(player.id)
                         await user.update(bank=-bet)
-
-            countdown_embed = discord.Embed(
-                title="🏎️  Pods are Lining Up!  🏎️",
-                description=f"The engines roar to life! \nThe race will begin in **10** seconds!",
-                colour=discord.Colour.dark_red()
-            )
-            countdown_embed.set_image(url="https://i.imgur.com/hPUns6I.gif")
-            race_response = await ctx.send(embed=countdown_embed)
-            await asyncio.sleep(10)
-
-            for n in range(turns):
-                race_action = "All pods **keep** their positions!"
-                if random.getrandbits(1):
-                    pod_1 = random.choice(standings[1:])
-                    pod_1_index = standings.index(pod_1)
-
-                    remaining_pods = [pod for pod in pods if pod != pod_1 and standings.index(pod) < pod_1_index]
-                    pod_2 = random.choice(remaining_pods)
-                    pod_2_index = standings.index(pod_2)
-
-                    race_action = f"{pod_emojis[pods.index(pod_1)]} {pod_1} **overtakes** {pod_emojis[pods.index(pod_2)]} {pod_2}!"
-                    standings[pod_1_index], standings[pod_2_index] = standings[pod_2_index], standings[pod_1_index]
-
-                race_standings = "\n".join(
-                    [f"{ind}. {pod_emojis[pods.index(racer)]} {racer}" for ind, racer in enumerate(standings)])
-                race_embed = discord.Embed(
-                    title="🏁 The Pod Race is On! 🏁",
-                    description=(
-                        f"Lap **{n + 1}** of {turns}\n\n"
-                        f"**Current Standings:**\n{race_standings}\n\n"
-                        f"**Race Highlights:**\n{race_action}\n\n"),
-                    colour=discord.Colour.green()
+            if num_players:
+                countdown_embed = discord.Embed(
+                    title="🏎️  Pods are Lining Up!  🏎️",
+                    description=f"The engines roar to life! \nThe race will begin in **10** seconds!",
+                    colour=discord.Colour.dark_red()
                 )
-                race_embed.set_footer(text="Hold on to your bets! Anything can happen!")
-                race_embed.set_image(
-                    url="https://static.wikia.nocookie.net/starwars/images/b/bc/Podrace.png/revision/latest?cb=20130120003616")
+                countdown_embed.set_image(url="https://i.imgur.com/hPUns6I.gif")
+                race_response = await ctx.send(embed=countdown_embed)
+                await asyncio.sleep(10)
 
-                await race_response.edit(embed=race_embed)
-                await asyncio.sleep(3)
+                for n in range(turns):
+                    race_action = "All pods **keep** their positions!"
+                    if random.getrandbits(1):
+                        pod_1 = random.choice(standings[1:])
+                        pod_1_index = standings.index(pod_1)
 
-            total_pool = (num_players * bet) * 2
-            individual_reward = int(total_pool // num_players)
-            async with Client(os.getenv("U_TOKEN")) as u_client:
-                guild = await u_client.get_guild(guild_id)
-                for player in reaction_dict[pods.index(standings[0]) + 1]:
-                    user = await guild.get_user_balance(player.id)
-                    await user.update(bank=+individual_reward)
+                        remaining_pods = [pod for pod in pods if pod != pod_1 and standings.index(pod) < pod_1_index]
+                        pod_2 = random.choice(remaining_pods)
+                        pod_2_index = standings.index(pod_2)
 
-            result_embed = discord.Embed(
-                title="🏆 Pod Racing Results 🏆",
-                description=(
-                    f"Laps: {turns}\n\n"
-                    f"**Final Standings:**\n\n{race_standings}\n\n"
-                    f"<:credits:1099938341467738122> Credits have been distributed."),
-                colour=discord.Colour.from_rgb(255, 215, 0)
-            )
-            result_embed.set_footer(text="Congratulations to the winning pod racers!")
-            result_embed.set_image(
-                url="https://media2.giphy.com/media/3ornk6AoeOfjdZoRLq/giphy.gif?cid=6c09b9522dizx8gp7g58tp22i6c5vakw3ote49aoz0pjoomv&ep=v1_internal_gif_by_id&rid=giphy.gif&ct=g")
-            await ctx.send(embed=result_embed)
+                        race_action = f"{pod_emojis[pods.index(pod_1)]} {pod_1} **overtakes** {pod_emojis[pods.index(pod_2)]} {pod_2}!"
+                        standings[pod_1_index], standings[pod_2_index] = standings[pod_2_index], standings[pod_1_index]
+
+                    race_standings = "\n".join(
+                        [f"{ind}. {pod_emojis[pods.index(racer)]} {racer}" for ind, racer in enumerate(standings)])
+                    race_embed = discord.Embed(
+                        title="🏁 The Pod Race is On! 🏁",
+                        description=(
+                            f"Lap **{n + 1}** of {turns}\n\n"
+                            f"**Current Standings:**\n{race_standings}\n\n"
+                            f"**Race Highlights:**\n{race_action}\n\n"),
+                        colour=discord.Colour.green()
+                    )
+                    race_embed.set_footer(text="Hold on to your bets! Anything can happen!")
+                    race_embed.set_image(
+                        url="https://static.wikia.nocookie.net/starwars/images/b/bc/Podrace.png/revision/latest?cb=20130120003616")
+
+                    await race_response.edit(embed=race_embed)
+                    await asyncio.sleep(3)
+
+                total_pool = (num_players * bet) * 2
+                individual_reward = int(total_pool // num_players)
+                async with Client(os.getenv("U_TOKEN")) as u_client:
+                    guild = await u_client.get_guild(guild_id)
+                    for player in reaction_dict[pods.index(standings[0]) + 1]:
+                        user = await guild.get_user_balance(player.id)
+                        await user.update(bank=+individual_reward)
+
+                result_embed = discord.Embed(
+                    title="🏆 Pod Racing Results 🏆",
+                    description=(
+                        f"Laps: {turns}\n\n"
+                        f"**Final Standings:**\n\n{race_standings}\n\n"
+                        f"<:credits:1099938341467738122> Credits have been distributed."),
+                    colour=discord.Colour.from_rgb(255, 215, 0)
+                )
+                result_embed.set_footer(text="Congratulations to the winning pod racers!")
+                result_embed.set_image(
+                    url="https://media2.giphy.com/media/3ornk6AoeOfjdZoRLq/giphy.gif?cid=6c09b9522dizx8gp7g58tp22i6c5vakw3ote49aoz0pjoomv&ep=v1_internal_gif_by_id&rid=giphy.gif&ct=g")
+                await ctx.send(embed=result_embed)
+            else:
+                cancel_embed = discord.Embed(
+                    colour=discord.Colour.from_rgb(255, 215, 0),
+                    title=f"❌ Pod Race Cancelled ❌",
+                    description=f"No players have bet! The race is cancelled.\n\nTo bet on pod races, react to a pod racer"
+                                f"emoji number during race start!"
+                )
+                cancel_embed.set_image(url="https://64.media.tumblr.com/108b75adcf905e224879e31dce9c77e9/tumblr_n8sdo6oJvX1rg0lgoo9_500.gifv")
+                await bot_response.edit(embed=cancel_embed)
 
     async def bump_reminder(channel):
         await asyncio.sleep(7141)
