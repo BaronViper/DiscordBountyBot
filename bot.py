@@ -713,9 +713,7 @@ def run_discord_bot():
                 prompt = message.content.replace(mention, "").strip()
                 if prompt:
                     ctx = await bot.get_context(message)
-                    command = bot.get_command("chat")
-                    if command:
-                        await ctx.invoke(bot.get_command("chat"), prompt=prompt)
+                    await chat(ctx, prompt)
         else:
             if message.content[0] != "(" and message.author.bot == True:
                 ctx = await bot.get_context(message)
@@ -723,8 +721,7 @@ def run_discord_bot():
                                               msg=message.content)
         await bot.process_commands(message)
 
-    @bot.hybrid_command(name="chat", description="Chat with R0-U41!")
-    @app_commands.describe(prompt="Your message")
+
     async def chat(ctx, prompt:str):
         try:
             with open('chat_sessions.pk1', 'rb') as dbfile:
@@ -732,7 +729,6 @@ def run_discord_bot():
         except (FileNotFoundError, EOFError):
             chat_sessions = {}
 
-        await ctx.defer()
         model = genai.GenerativeModel("gemini-2.0-flash-exp",
                                       system_instruction="""You are R0-U41, an Imperial droid designed for Star Wars: Galactic Anarchy, a role-playing Discord server set in the dark and gritty universe of 2 BBY. Your primary purpose is to serve as a storytelling assistant, maintaining an immersive experience for players while adhering to these operational protocols:
 
@@ -772,7 +768,7 @@ def run_discord_bot():
                                              generation_config=genai.GenerationConfig(
                                                  max_output_tokens=450,temperature=0.8),
                                              )
-                gen_delay = len(response.text) // 40
+                gen_delay = len(response.text) // 70
                 await asyncio.sleep(gen_delay)
             await ctx.send(response.text)
 
@@ -871,11 +867,16 @@ def run_discord_bot():
             await ctx.send("A scenario is already in progress. Finish the current mission with /gamemaster_stop or change scenario location.")
 
     @bot.command()
-    async def gamemaster_chat(ctx, author=None, msg=None):
+    async def gamemaster_chat(ctx, author=None, msg=None, new_channel=None, new_channel_msg=None):
         rp_sessions = load_rp_sessions()
 
-        scene_info = rp_sessions[ctx.channel.id][0]
-        history = rp_sessions[ctx.channel.id][1]
+        if new_channel:
+            channel = await bot.fetch_channel(new_channel)
+        else:
+            channel = ctx.channel
+
+        scene_info = rp_sessions[channel.id][0]
+        history = rp_sessions[channel.id][1]
         model = genai.GenerativeModel(
             "gemini-2.0-flash-exp",
             system_instruction=(
@@ -935,7 +936,7 @@ def run_discord_bot():
         )
 
         try:
-            async with ctx.channel.typing():
+            async with channel.typing():
                 chat = model.start_chat(history=history)
                 if msg:
                     user_message = f"Player {author}: {msg}"
@@ -943,29 +944,39 @@ def run_discord_bot():
                                                  safety_settings={
                                                       HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
                                                       HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                                                      HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                                      HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
                                                       HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
                                                  generation_config=genai.GenerationConfig(
                                                      max_output_tokens=450,temperature=0.8))
 
                     history.append({"role": "user", "parts": user_message})
+                elif new_channel is not None and new_channel_msg is not None:
+                    response = chat.send_message(f"SYSTEM INSTRUCTIONS: The player scene has transitioned to the described place, {new_channel_msg}",
+                                                 safety_settings={
+                                                     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                                                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                                                     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                                                     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
+                                                 generation_config=genai.GenerationConfig(
+                                                     max_output_tokens=450, temperature=0.8))
+
                 else:
                     response = chat.send_message("SYSTEM INSTRUCTIONS: CONTINUE",
                                                  safety_settings={
                                                      HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
                                                      HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                                                     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                                     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
                                                      HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
                                                  generation_config=genai.GenerationConfig(
                                                      max_output_tokens=450, temperature=0.8))
                 response_delay = len(response.text) // 40
                 await asyncio.sleep(response_delay)
-            await ctx.channel.send(response.text)
+            await channel.send(response.text)
             history.append({"role": "model", "parts": response.text})
-            rp_sessions[ctx.channel.id] = (scene_info, history)
+            rp_sessions[channel.id] = (scene_info, history)
             save_rp_sessions(rp_sessions)
         except Exception as e:
-            ctx.channel.send(f"An error occurred: {e}. Contacting <@407151046108905473>")
+            await channel.send(f"An error occurred: {e}. Contacting <@407151046108905473>")
 
     @bot.hybrid_command(name="gamemaster_stop", description="Stop the gamemaster mode.")
     @commands.has_role("Game Master")
@@ -975,43 +986,79 @@ def run_discord_bot():
             rp_sessions = load_rp_sessions()
             del rp_sessions[channel_id]
             save_rp_sessions(rp_sessions)
-            await ctx.send("Gamemaster for this channel has been stopped successfully.", delete_after=5)
+            await ctx.send("✅ Gamemaster for this channel has been stopped successfully.", ephemeral=True)
         except:
             await ctx.send(
-                "There is no active game master session in this channel!")
+                "❌ There is no active game master session in this channel!", ephemeral=True)
 
     @bot.hybrid_command(name="gamemaster_edit", description="Add context to the gamemaster.")
     @app_commands.describe(
         context="Context to add.")
     @commands.has_role("Game Master")
     async def gamemaster_edit(ctx, context):
-        try:
-            with open('rp_sessions.pk1', 'rb') as dbfile:
-                rp_sessions = pickle.load(dbfile)
-        except (FileNotFoundError, EOFError):
-            await ctx.send("An error occurred. Try again later.", delete_after=5)
+        rp_sessions = load_rp_sessions()
         channel_id = ctx.channel.id
         if rp_sessions[channel_id] != ():
             history = rp_sessions[channel_id][1]
             updated_context = f"Updated Context: {context}"
             history.append({"role": "user", "parts": updated_context})
-            rp_sessions[channel_id][1] = history
+            rp_sessions[channel_id] = (rp_sessions[channel_id][0], history)
 
-            with open('rp_sessions.pk1', 'wb') as dbfile:
-                pickle.dump(rp_sessions, dbfile)
-            await ctx.send("Context updated successfully.", delete_after=5)
+            save_rp_sessions(rp_sessions)
+            await ctx.send("✅ Context updated successfully.", ephemeral=True)
         else:
-            await ctx.send("The game master is not active for this channel.", delete_after=5)
+            await ctx.send("❌ The game master is not active for this channel.", ephemeral=True)
 
-    @bot.hybrid_command(name="gamemaster_continue")
-    @commands.has_role("Game Master")
+    @bot.hybrid_command(name="gamemaster_continue", description="Have the bot continue with another GM Message")
     async def gamemaster_continue(ctx):
         rp_sessions = load_rp_sessions()
         channel_id = ctx.channel.id
-        await ctx.send("Continuing...", delete_after=5)
+        await ctx.send("🔃 Continuing...", ephemeral=True)
         if rp_sessions[channel_id] != ():
             await gamemaster_chat(ctx)
         else:
-            await ctx.send("The game master is not active for this channel.", delete_after=5)
+            await ctx.send("❌ The game master is not active for this channel.", ephemeral=True)
+
+    @bot.hybrid_command(name="gamemaster_location", description="Move Game master location")
+    @app_commands.describe(channel="Hyperlink of #channel to move to", description="Description of the new location.")
+    @commands.has_role("Game Master")
+    async def gamemaster_location(ctx, channel, description):
+        rp_sessions = load_rp_sessions()
+        current_channel_id = ctx.channel.id
+
+        try:
+            fnew_channel_id = int(channel.replace("<","").replace(">","").replace("#",""))
+        except:
+            await ctx.send("❌ Invalid channel was provided. Make sure it is the actual blue channel link. Example: <#>1099899000729128960", ephemeral=True)
+            return
+
+        if current_channel_id in rp_sessions:
+            if fnew_channel_id in rp_sessions:
+                await ctx.send("❌ A game master session is in progress in that channel. Please select a different one.", ephemeral=True)
+            else:
+                rp_sessions[fnew_channel_id] = rp_sessions.pop(current_channel_id)
+                save_rp_sessions(rp_sessions)
+                await ctx.send(f"✅ Location changed to <#{fnew_channel_id}>", ephemeral=True)
+                await gamemaster_chat(ctx, new_channel=fnew_channel_id, new_channel_msg=description)
+        else:
+            await ctx.send("❌ There is no active game master session in this channel.", ephemeral=True)
+
+    @bot.tree.command(name="gamemaster_sessions",
+                      description="Show all Game Master sessions in progress")
+    @commands.has_role("Game Master")
+    async def gamemaster_sessions(interaction):
+        rp_sessions = load_rp_sessions()
+        embed_desc = ""
+        for channel in rp_sessions:
+            if rp_sessions[channel]:
+                embed_desc += f"**On** <#{channel}>: {rp_sessions[channel][0]['character'][:10]}\n\n"
+        embed = discord.Embed(
+            colour=discord.Colour.from_rgb(0, 255, 0),
+            title=f"✅ Showing All Active RP Sessions",
+            description=embed_desc
+        )
+        embed.set_footer(text="Here are the ongoing Game Master sessions. To end a session, use /gamemaster_stop in the channel!")
+        await interaction.response.send_message(embed=embed)
+
 
     bot.run(os.getenv('TOKEN'))
