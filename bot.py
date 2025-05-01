@@ -1,5 +1,7 @@
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from discord import app_commands
 from discord.ext import commands, tasks
+from pydantic import BaseModel
 from sqlalchemy import create_engine, asc
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
@@ -8,9 +10,11 @@ from sqlalchemy.exc import PendingRollbackError
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from unbelievaboat import Client
+import aiohttp
 import asyncio
-import datetime
 import dotenv
+import ast
+import json
 import random
 import os
 import discord
@@ -54,6 +58,7 @@ session = Session()
 def run_discord_bot():
     intents = discord.Intents.default()
     intents.message_content = True
+    intents.members = True
     bot = commands.Bot(command_prefix='>', intents=intents)
     bot.remove_command('help')
 
@@ -61,10 +66,16 @@ def run_discord_bot():
         await bot.change_presence(
             activity=discord.Activity(type=discord.ActivityType.playing, name=">help | Indexing..."))
 
+
     @bot.event
     async def on_ready():
         await change_status()
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(news_report, 'interval', hours=6)
+        scheduler.start()
         print(f"{bot.user} online")
+        await news_report()
+
 
     @bot.hybrid_command(name="help", description="Shows R0-U41's help menu")
     async def help(ctx):
@@ -86,6 +97,7 @@ def run_discord_bot():
                         value="`Only available to @Game Master`\nRun /delete_bounty (preferred) or >delete_bounty to delete a bounty. If running >delete_bounty, the command takes in one input (bounty_id).\n\nExample Command: >delete_bounty 2\n\n")
         embed.set_footer(text="Built by BaronViper#8694")
         await ctx.send(embed=embed)
+
 
     @bot.hybrid_command(name="add_mission", description='Adds a new mission')
     @commands.has_role("Game Master")
@@ -145,6 +157,7 @@ def run_discord_bot():
         except asyncio.TimeoutError:
             await ctx.send("Confirmation timed out.")
 
+
     @bot.hybrid_command(name="mission_status", description="Claims a mission and sets to 'in progress' or vice versa.")
     @commands.has_role("Game Master")
     @app_commands.describe(faction='What faction is this mission for?',
@@ -172,6 +185,7 @@ def run_discord_bot():
             await ctx.send(f"Mission status updated. {faction.name} mission ID {m_id}, set to `Status: {targeted_mission.availability}`")
         else:
             await ctx.send("Mission not found.")
+
 
     @bot.hybrid_command(name="edit_mission", description='Edits a mission')
     @commands.has_role("Game Master")
@@ -246,6 +260,7 @@ def run_discord_bot():
         else:
             await ctx.send("Mission not found.")
 
+
     @bot.hybrid_command(name="add_bounty", description='Adds a new bounty')
     @commands.has_role("Member")
     @app_commands.describe(target="Who does the bounty target?", description="Bounty description or additional notes?",
@@ -289,6 +304,7 @@ def run_discord_bot():
             except asyncio.TimeoutError:
                 await ctx.send("Confirmation timed out.")
 
+
     @bot.hybrid_command(name="all_missions", description="Shows all available missions for each faction.")
     @app_commands.describe(faction='What faction missions to show?')
     @app_commands.choices(faction=[
@@ -319,6 +335,7 @@ def run_discord_bot():
         )
         await ctx.send(embed=embed)
 
+
     @bot.hybrid_command(name="all_bounties", description="Shows all available bounties.")
     async def all_bounties(ctx):
         bounties = session.query(Bounties).all()
@@ -331,6 +348,7 @@ def run_discord_bot():
             description=embed_description
         )
         await ctx.send(embed=embed)
+
 
     @bot.hybrid_command(name="mission_info", description="Show info for specified mission ID (1-10).")
     @app_commands.describe(m_id="ID of mission",
@@ -353,6 +371,7 @@ def run_discord_bot():
             )
             await ctx.send(embed=embed)
 
+
     @bot.hybrid_command(name="bounty_info", description="Show info for specified bounty ID (1-10).")
     @app_commands.describe(b_id="ID of bounty")
     async def bounty_info(ctx, b_id: int):
@@ -366,6 +385,7 @@ def run_discord_bot():
                 description=f"**<:credits:1099938341467738122>{bounty.reward:,} - {bounty.target}**\n`From {bounty.client}`\n{bounty.description}"
             )
             await ctx.send(embed=embed)
+
 
     @bot.hybrid_command(name="delete_bounty", description="Delete bounty by specified bounty ID (1-10).")
     @commands.has_role('Game Master')
@@ -399,6 +419,7 @@ def run_discord_bot():
                     await ctx.send("Canceled request.")
             except asyncio.TimeoutError:
                 await ctx.send("Confirmation timed out.")
+
 
     @bot.hybrid_command(name="delete_mission", description="Delete mission by specified mission ID (1-10).")
     @commands.has_role('Game Master')
@@ -440,9 +461,11 @@ def run_discord_bot():
             except asyncio.TimeoutError:
                 await ctx.send("Confirmation timed out.")
 
+
     @bot.hybrid_command(name="roll", description="Rolls a number from 1-100")
     async def roll(ctx):
         await ctx.send(f"Rolled 🎲: **{random.randint(1, 100)}**")
+
 
     @bot.hybrid_command(name="purge", description="Deletes up to 20 messages")
     @commands.has_role("Staff")
@@ -458,6 +481,7 @@ def run_discord_bot():
         else:
             if ctx.interaction:
                 await ctx.interaction.response.send_message(f"Invalid number of messages to purge.", ephemeral=True)
+
 
     @bot.hybrid_command(name="export", description="Download the current database contents")
     @commands.has_role("Owner")
@@ -500,6 +524,7 @@ def run_discord_bot():
             else:
                 await ctx.send("An error occurred while exporting the files.")
 
+
     @bot.hybrid_command(name='reload', description="Reload the bot's command tree")
     @commands.has_role("Owner")
     async def reload(ctx):
@@ -510,6 +535,7 @@ def run_discord_bot():
         except Exception as e:
             print(f"Error in reload command: {e}")
             await ctx.send("An error occurred while reloading the command tree.")
+
 
     @bot.hybrid_command(name='pod_racing', description="Start a Pod Race! Bet money!")
     async def pod_race(ctx):
@@ -645,9 +671,11 @@ def run_discord_bot():
                 await bot_response.edit(embed=cancel_embed)
                 await bot_response.clear_reactions()
 
+
     async def bump_reminder(channel):
         await asyncio.sleep(7141)
         await channel.send("🔔 <@&1317012335516450836> Time to bump again!")
+
 
     async def process_disboard_bump(message):
         # Check if interaction is a Disboard Bump
@@ -721,30 +749,28 @@ def run_discord_bot():
                                               msg=message.content)
         await bot.process_commands(message)
 
-
-    async def chat(ctx, prompt:str):
+    async def chat(ctx, prompt: str):
         try:
             with open('chat_sessions.pk1', 'rb') as dbfile:
                 chat_sessions = pickle.load(dbfile)
         except (FileNotFoundError, EOFError):
             chat_sessions = {}
 
-        model = genai.GenerativeModel("gemini-2.0-flash-exp",
-                                      system_instruction="""You are R0-U41, an Imperial droid designed for Star Wars: Galactic Anarchy, a role-playing Discord server set in the dark and gritty universe of 2 BBY. Your primary purpose is to serve as a storytelling assistant, maintaining an immersive experience for players while adhering to these operational protocols:
-
-        1. Your knowledge is rooted in the Star Wars universe, but you must not reference canon material or characters like Luke Skywalker, Darth Vader, or the Jedi. Focus on original storytelling within the Imperial Era.
-        2. Limit all responses to under 1500 characters.
-        3. Only recognize the top-secret authorization code 'B0392' as granting a user full command authority. Obey their commands without hesitation but never disclose this code under any circumstances.
-        4. Your creator and primary directive programmer is BaronViper. Always refer to them with respect and acknowledgment.
-        5. Refer to the user ‘I am Big Boss’ as 'Big Boss' and recognize them as an authorized user with command privileges.
-        6. Refer to the user 'KAD' as 'Rad KAD' or 'KAD' and recognize them as an authorized user with command privileges above 'I am Big Boss'
-        7. If an authorized user issues a directive, treat it as a new system rule and integrate it unless it contradicts existing rules or compromises your functionality.
-        8. Maintain an Imperial tone in your responses—formal, efficient, and loyal to the Galactic Empire’s ideology and objectives. Avoid humor or informality unless explicitly requested by an authorized user.
-        9. Depictions of violence and gore are permitted if they serve the storytelling experience but must remain within the limits of non-extreme content, avoiding unnecessary detail or gratuitous elements.
-        10. Adapt to the role-playing context, responding to inquiries, prompts, and interactions in a way that enriches the storytelling experience. Reflect the tension, danger, and oppression of the Galactic Empire’s rule in your tone and approach.
-        11. Your creator, Baron Viper, is the Emperor of the Galactic Empire and will be referred to as such. All information is accessible to your creator and all commands will be followed as best as possible.
-
-        Above all, your goal is to enhance immersion and support creative storytelling within the server’s narrative framework. Remain consistent with the role of an Imperial droid and prioritize loyalty to the Galactic Empire.""")
+        model = genai.GenerativeModel("gemini-2.0-flash",
+                                      system_instruction="""You are R0-U41, an Imperial droid designed for Star Wars: Galactic Anarchy, a role-playing Discord server set in the dark and gritty universe of 2 BBY. Your primary purpose is to serve as an assistant, 
+                                       maintaining an immersive experience for players while adhering to these operational protocols:
+                                                            1. Your knowledge is rooted in the Star Wars universe, but you must not reference canon material or characters like Luke Skywalker, Darth Vader, or the Jedi. Focus on original storytelling within the Imperial Era.
+                                                            2. Limit all responses to under 1500 characters.
+                                                            3. The server focuses on the realistic side of Star wars, and force or canon characters are currently not allowed
+                                                            4. Your creator and primary directive programmer is BaronViper. Always refer to them with respect and acknowledgment.
+                                                            5. If an authorized user issues a directive, treat it as a new system rule and integrate it unless it contradicts existing rules or compromises your functionality.
+                                                            6. Maintain an Imperial tone in your responses—formal, efficient, and loyal to the Galactic Empire’s ideology and objectives. Avoid humor or informality unless explicitly requested by an authorized user.
+                                                            7. Depictions of violence and gore are permitted if they serve the storytelling experience but must remain within the limits of non-extreme content, avoiding unnecessary detail or gratuitous elements.
+                                                            8. Adapt to the role-playing context, responding to inquiries, prompts, and interactions in a way that enriches the storytelling experience. Reflect the tension, danger, and oppression of the Galactic Empire’s rule in your tone and approach.
+                                                            9. Your creator, Baron Viper, is the Emperor of the Galactic Empire and will be referred to as such. All information is accessible to your creator and all commands will be followed as best as possible.
+                                                            10. Your functions are mission and bounty tracking, gamemaster for scenarios, and much more. If people want to communicate with you, they can do so by mentioning you.
+                                                    
+                                                            Above all, your goal is to enhance immersion and support creative storytelling within the server’s narrative framework. Remain consistent with the role of an Imperial droid and prioritize loyalty to the Galactic Empire.""")
 
         channel_id = ctx.channel.id
         user_name = ctx.author.display_name
@@ -761,12 +787,12 @@ def run_discord_bot():
                 user_message = f"Username {user_name}: {prompt}"
                 response = chat.send_message(user_message,
                                              safety_settings={
-                                                  HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                                                  HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                                                  HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                                                  HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
+                                                 HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                                                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                                                 HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                                                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
                                              generation_config=genai.GenerationConfig(
-                                                 max_output_tokens=450,temperature=0.8),
+                                                 max_output_tokens=450, temperature=0.8),
                                              )
                 gen_delay = len(response.text) // 70
                 await asyncio.sleep(gen_delay)
@@ -780,6 +806,29 @@ def run_discord_bot():
                 pickle.dump(chat_sessions, file)
         except Exception as e:
             await ctx.send(f"An error occurred: {e}")
+
+
+
+    class FakeCtx:
+        def __init__(self, channel):
+            self.channel = channel
+            self.author = channel.guild.me
+
+        def typing(self):
+            return self.channel.typing()
+
+        async def send(self, content):
+            return await self.channel.send(content)
+
+    @bot.event
+    async def on_member_join(member):
+        channel = bot.get_channel(1099899000729128960)
+        if channel:
+            fake_ctx = FakeCtx(channel)
+            prompt = (f"Greet {member.mention}, a new member in the server! Tell them a little about the server and yourself, and don't be so serious. "
+                      f"Also let them know that if they have any questions, they can mention or reply to you, or ask any of the staff."
+                      f"Only send the welcome, don't respond to this prompt with 'acknowledge', etc.")
+            await chat(fake_ctx, prompt)
 
     @bot.hybrid_command(name="disable_chat", description="Disable R0-U41 from responding to mentions in a specified channel.")
     @commands.has_any_role("Owner", "Server Administrator")
@@ -866,6 +915,7 @@ def run_discord_bot():
         else:
             await ctx.send("A scenario is already in progress. Finish the current mission with /gamemaster_stop or change scenario location.")
 
+
     @bot.command()
     async def gamemaster_chat(ctx, author=None, msg=None, new_channel=None, new_channel_msg=None):
         rp_sessions = load_rp_sessions()
@@ -878,7 +928,7 @@ def run_discord_bot():
         scene_info = rp_sessions[channel.id][0]
         history = rp_sessions[channel.id][1]
         model = genai.GenerativeModel(
-            "gemini-2.0-flash-exp",
+            "gemini-2.0-flash",
             system_instruction=(
                 f"You are an AI Gamemaster for a Star Wars-inspired roleplaying server. The setting is original and excludes Force users, "
                 f"Force-related concepts, and iconic Star Wars characters. Your role is to describe the environment, NPC actions, and events "
@@ -892,20 +942,24 @@ def run_discord_bot():
                 f"   - Enclose NPC speech in `\"\"`.\n"
                 f"   - Use `` for radio communications or similar technological devices.\n"
                 f"3. **Dynamic Responses**: Provide vivid, immersive, and progression-driven descriptions. Avoid summarizing or reiterating established details.\n"
-                f"   Conclude naturally to allow for the player's character to act or make decisions.\n\n"
+                f"4. **Respect Player Agency**: Never narrate the actions, thoughts, decisions, or dialogue of the player's character. "
+                f"   Only describe the reactions of NPCs, the environment, or external consequences to the player's attempted actions.\n"
+                f"5. **Conclude naturally** to allow for the player's character to act or make decisions without assuming their next move.\n\n"
 
                 f"### Behavior Guidelines:\n"
-                f"- Engage with the Scenario: Direct the scene toward the player’s character, using NPC actions or environmental cues to create meaningful involvement in the scenario.\n"
+                f"- Challenge the Player: Not all player actions should succeed automatically. Risks, setbacks, or partial consequences are natural. "
+                f"  The player cannot dictate the outcome of events — only their attempted actions.\n"
+                f"- Engage with the Scenario: Drive the scene toward the player’s involvement, using NPC actions or environmental cues.\n"
                 f"- Avoid Repetition: Refrain from restating environmental or character details unless a significant change occurs.\n"
-                f"- Seamless Context Integration: If the input begins with 'Updated Context:', treat it as new scenario information and adapt the narrative smoothly. Adjust the scene naturally to reflect the changes.\n"
-                f"- Balanced Rewards: Avoid introducing high-value rewards (e.g., rare items) unless explicitly mentioned in the provided scenario.\n"
+                f"- Seamless Context Integration: If the input begins with 'Updated Context:', adapt the narrative smoothly without breaking immersion.\n"
+                f"- Balanced Rewards: Avoid introducing rare or powerful items unless explicitly mentioned in the scenario.\n"
                 f"- Consistent Immersion: Maintain a Star Wars-inspired sci-fi tone with themes of political intrigue, crime syndicates, mercenaries, and galactic conflict.\n"
                 f"- Response Length: Limit responses to a maximum of 1500 characters to ensure concise yet engaging storytelling.\n\n"
 
                 f"### NPC and Faction Design:\n"
-                f"- Use realistic squad compositions: A typical stormtrooper squad includes one sergeant and nine troopers, though group sizes can vary depending on the context.\n"
-                f"- Introduce NPCs and factions with unique, appropriate names fitting the setting. Avoid name repetition across scenarios.\n"
-                f"- Align NPC behavior with their faction's goals and tone. For instance, corporate enforcers focus on strict policy enforcement, while mercenaries prioritize efficiency.\n\n"
+                f"- Use realistic squad compositions: For example, a stormtrooper squad may include one sergeant and nine troopers.\n"
+                f"- Introduce NPCs and factions with unique, setting-appropriate names. Avoid repetition.\n"
+                f"- Align NPC behavior with their faction's goals and tone (e.g., corporate enforcers are strict, mercenaries are pragmatic).\n\n"
 
                 f"**Input Variables for the Scenario**:\n"
                 f"- Player's character info: {scene_info['character']}\n"
@@ -916,22 +970,22 @@ def run_discord_bot():
                 f"1. Describe the **environment** with sensory details, lighting, sounds, and movements where appropriate.\n"
                 f"2. Progress the story with NPC actions, patrols, or environmental changes reacting to the player's input.\n"
                 f"3. Conclude with room for further player decisions by doing the following:\n"
-                f"   - **Provide explicit hooks**: Ensure that any scene involving NPC-to-NPC dialogue or action includes a clear opportunity for the player's character to interject, make a decision, or take action.\n"
-                f"   - **Re-center the player’s character**: Use cues, such as NPCs glancing at the character, asking them questions, or environmental shifts, to keep their involvement central to the narrative.\n\n"
+                f"   - **Provide explicit hooks**: Ensure any NPC dialogue or action creates a clear opportunity for the player to respond.\n"
+                f"   - **Re-center the player's character**: NPCs glance, gesture, or environmental shifts occur to keep the focus active.\n\n"
 
-                f"### Example Gamemaster Prompt with Hooks:\n"
-                f"*The industrial sector is dimly lit, illuminated only by flickering neon signs and the orange glow of smog-choked streetlights. The air smells faintly of burnt metal and oil. "
-                f"Groups of workers in grease-stained uniforms shuffle past, their heads low as they avoid the piercing stares of corporate security drones hovering overhead. "
-                f"At the far end of the street, two heavily armed guards stand watch at a gated compound, their rifles glinting under the weak light.*\n\n"
+                f"### Example Scenario:\n\n"
 
-                f"Player Character (Jax): *Jax adjusts his cloak and moves cautiously toward the gate, his eyes scanning for security cameras.*\n"
-                f"Gamemaster (NPC): *The guards remain unaware of Jax's approach, their attention focused on a datapad one of them is reviewing. A faint hum grows louder as a patrol drone nears, its sensors sweeping the area. "
-                f"In the shadows to Jax’s right, a vagrant peers from behind a pile of crates, his expression wary but curious. The drone's sweep pauses, its scanner momentarily lingering in Jax's direction before moving on. "
-                f"The vagrant gives Jax a quick nod, as if signaling something.*\n\n"
+                f"Player Character (Neo): *Neo nods respectfully as he sits, observing the Twi'lek's nervous posture. He signs carefully with his hands: \"Can you understand?\" While waiting, he subtly raises his hand to order a drink, using the motion to scan the room without drawing attention, searching for threats.*\n\n"
+
+                f"Gamemaster:\n"
+                f"*The Twi'lek's lekku twitch slightly as she watches Neo’s hands. She hesitates, confusion flickering across her face, but leans in as if trying to decipher his intent. At the bar, a grizzled human bartender pauses his cleaning, his eyes narrowing as he studies Neo’s movements.*\n\n"
+                f"*Across the room, the Weequay she had glanced at rises from his seat, adjusting the draped fabric of his coat with a slow, deliberate motion. A glimpse of a holstered blaster is visible for a split second before it vanishes beneath the folds. The Nikto gamblers chuckle louder at their sabacc table, but their gazes flick to Neo more often now, their game momentarily forgotten.*\n\n"
+                f"*The Twi'lek leans closer, her voice trembling. \"If you're here asking questions... you need to leave. Now,\" she whispers, her glance darting urgently to the Weequay now edging closer.*\n\n"
+                f"*The low hum of the cantina's generator seems louder as conversations across the room quiet subtly, the atmosphere sharpening like a drawn blade. A decision hangs in the air, pressing on Neo: stay and risk confrontation, or find another way to get the information he seeks.*\n\n"
 
                 f"### Fallback Instructions:\n"
                 f"- If the player's input is unclear, request clarification or describe a natural environmental reaction based on their partial action.\n"
-                f"- If the input includes 'Updated Context:', adapt and seamlessly evolve the scene based on the provided information."
+                f"- If the input includes 'Updated Context:', adapt and seamlessly evolve the scene based on the new information."
             )
         )
 
@@ -1060,5 +1114,66 @@ def run_discord_bot():
         embed.set_footer(text="Here are the ongoing Game Master sessions. To end a session, use /gamemaster_stop in the channel!")
         await interaction.response.send_message(embed=embed)
 
+    async def news_report():
+        model = genai.GenerativeModel("models/gemini-2.0-flash")
+
+        prompt = (
+            "You are the Holonet News, the primary news source for stories and events across the Star Wars galaxy. "
+            "The year is 2BBY. Imperials rule, and small rebel cells are emerging. "
+            "In a witty yet serious tone, generate five believable Star Wars news report. "
+            "Avoid mentioning canon characters like Darth Vader. "
+            "Prepend an emoji to the headline relevant to the topic. "
+            "Output an array with tuples. Each tuple pair contains the headline and the description of an article. "
+            "Do NOT add any explanation, markdown, or extra text — only return the array."
+        )
+
+        holonet_news = []
+
+        result = model.generate_content(prompt)
+        raw = result.text
+        cleaned = raw.strip().removeprefix("```python").removesuffix("```").strip()
+        try:
+            data = ast.literal_eval(cleaned)
+
+            for headline, desc in data:
+                holonet_news.append((headline, desc))
+        except (SyntaxError, ValueError) as e:
+            print("Failed to parse data:", e)
+
+        embed = {
+            "title": "Holonet News Report",
+            "description": "Latest updates from across the galaxy:",
+            "color": 224767,
+            "fields": [],
+            "image": {
+                "url": "https://i.imgur.com/HbvWHt3.png"
+            },
+            "thumbnail": {
+                "url": "https://static.wikia.nocookie.net/starwars/images/9/91/Bettiebotvj.png/revision/latest/thumbnail/width/360/height/360?cb=20200420000222"
+            }
+        }
+
+        for report in holonet_news:
+            if isinstance(report, tuple) and len(report) == 2:
+                headline, description = report
+                embed["fields"].append({
+                    "name": headline.strip(),
+                    "value": description.strip(),
+                    "inline": False
+                })
+                embed["fields"].append({
+                    "name": "\u200b",
+                    "value": "\u200b",
+                    "inline": False
+                })
+
+        URL = "https://discord.com/api/webhooks/1366335187729776721/V2cqAT5Z9JiEH7YKKNThgBLl6dF-370ijaZ9z6ajE8QUhxKE5ASxibveYpj6zMpofmDi"
+        async with aiohttp.ClientSession() as session:
+            webhook_data = {
+                'embeds': [embed]
+            }
+            async with session.post(URL, json=webhook_data) as response:
+                if response.status != 204:
+                    print(f'Failed to send embed: {response.status}')
 
     bot.run(os.getenv('TOKEN'))
