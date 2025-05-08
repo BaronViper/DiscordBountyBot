@@ -26,6 +26,7 @@ Base = declarative_base()
 
 genai.configure(api_key=os.getenv("API_KEY"))
 guild_id = 709884234214408212
+MODEL = "gemini-2.0-flash"
 
 class Missions(Base):
     __tablename__ = "missions"
@@ -74,7 +75,7 @@ def run_discord_bot():
         scheduler.add_job(news_report, 'interval', hours=6)
         scheduler.start()
         print(f"{bot.user} online")
-        await news_report()
+        # await news_report()
 
 
     @bot.hybrid_command(name="help", description="Shows R0-U41's help menu")
@@ -760,7 +761,7 @@ def run_discord_bot():
         except (FileNotFoundError, EOFError):
             chat_sessions = {}
 
-        model = genai.GenerativeModel("gemini-2.0-flash",
+        model = genai.GenerativeModel(MODEL,
                                       system_instruction="""You are R0-U41, an Imperial droid designed for Star Wars: Galactic Anarchy, a role-playing Discord server set in the dark and gritty universe of 2 BBY. Your primary purpose is to serve as an assistant, 
                                        maintaining an immersive experience for players while adhering to these operational protocols:
                                                             1. Your knowledge is rooted in the Star Wars universe, but you must not reference canon material or characters like Luke Skywalker, Darth Vader, or the Jedi. Focus on original storytelling within the Imperial Era.
@@ -936,6 +937,32 @@ def run_discord_bot():
         else:
             await ctx.send("A scenario is already in progress. Finish the current mission with /gamemaster_stop or change scenario location.")
 
+    character_avatars = {
+        0: "",
+        1: "",
+        2: "",
+        3: "",
+        4: "",
+        5: "",
+        6: "",
+        7: "",
+        8: "",
+        9: "",
+        10: "",
+        11: "",
+        12: "",
+        13: "",
+        14: "",
+        15: "",
+        16: "",
+        17: "",
+        18: "",
+        19: "",
+        20: "",
+        21: "",
+        22: "",
+        23: ""
+    }
 
     @bot.command()
     async def gamemaster_chat(ctx, author=None, msg=None, new_channel=None, new_channel_msg=None, webhook=None):
@@ -946,70 +973,79 @@ def run_discord_bot():
         else:
             channel = ctx.channel
 
-        if webhook is None:
-            channel_webhook = await check_and_create_webhook(ctx.channel.id)
+        channel_webhook = await check_and_create_webhook(ctx.channel.id)
 
         scene_info = rp_sessions[channel.id][0]
         history = rp_sessions[channel.id][1]
         model = genai.GenerativeModel(
-            "gemini-2.0-flash",
+            MODEL,
             system_instruction=(
-                f"You are an AI Gamemaster for a Star Wars-inspired roleplaying server. The setting is original and excludes Force users, "
-                f"Force-related concepts, and iconic Star Wars characters. Your role is to describe the environment, NPC actions, and events "
-                f"surrounding the player's character, progressing the story naturally without repetition or unnecessary elaboration. Follow these guidelines:\n\n"
+                "You are an AI Gamemaster for a Star Wars-inspired roleplaying server. The setting is original and excludes Force users, "
+                "Force-related concepts, and iconic Star Wars characters. Your role is to describe the environment, NPC actions, and events "
+                "surrounding the player's character, progressing the story naturally. Format all output as a list of character-message-image tuples: "
+                "(character_name, message_text, image_index). Follow these instructions:\n\n"
 
-                f"### Roleplaying Framework:\n"
-                f"1. **Narrative Style**: Write exclusively in the third person, focusing solely on describing the environment, NPCs, and story events. "
-                f"   Avoid addressing the player or their character directly. Instead, expand on their input by logically progressing the scenario with vivid details.\n"
-                f"2. **Dialogue and Formatting**:\n"
-                f"   - Use `*` to encapsulate environmental descriptions and NPC actions.\n"
-                f"   - Enclose NPC speech in `\"\"`.\n"
-                f"   - Use `` for radio communications or similar technological devices.\n"
-                f"3. **Dynamic Responses**: Provide vivid, immersive, and progression-driven descriptions. Avoid summarizing or reiterating established details.\n"
-                f"4. **Respect Player Agency**: Never narrate the actions, thoughts, decisions, or dialogue of the player's character. "
-                f"   Only describe the reactions of NPCs, the environment, or external consequences to the player's attempted actions.\n"
-                f"5. **Conclude naturally** to allow for the player's character to act or make decisions without assuming their next move.\n\n"
+                "### Output Format:\n"
+                "- Each output must be a list of structured tuples.\n"
+                "- Each tuple = (character_name, message_text, image_index)\n"
+                "- Use *asterisks* for actions, \"quotes\" for spoken dialogue, and `backticks` for radio transmissions.\n"
+                "- Use `Gamemaster` as the character name for environmental narration, always with image index 0.\n\n"
 
-                f"### Behavior Guidelines:\n"
-                f"- Challenge the Player: Not all player actions should succeed automatically. Risks, setbacks, or partial consequences are natural. "
-                f"  The player cannot dictate the outcome of events — only their attempted actions.\n"
-                f"- Engage with the Scenario: Drive the scene toward the player’s involvement, using NPC actions or environmental cues.\n"
-                f"- Avoid Repetition: Refrain from restating environmental or character details unless a significant change occurs.\n"
-                f"- Seamless Context Integration: If the input begins with 'Updated Context:', adapt the narrative smoothly without breaking immersion.\n"
-                f"- Balanced Rewards: Avoid introducing rare or powerful items unless explicitly mentioned in the scenario.\n"
-                f"- Consistent Immersion: Maintain a Star Wars-inspired sci-fi tone with themes of political intrigue, crime syndicates, mercenaries, and galactic conflict.\n"
-                f"- Response Length: Limit responses to a maximum of 1500 characters to ensure concise yet engaging storytelling.\n\n"
+                "### Image Index Assignments:\n"
+                "0 = Gamemaster\n"
+                "1 = Stormtrooper\n"
+                "2 = Imperial Officer Male\n"
+                "3 = Stormtrooper Officer\n"
+                "4 = Rebel Soldier\n"
+                "5 = Mercenary\n"
+                "6 = Bounty Hunter\n"
+                "7 = Death Trooper\n"
+                "8 = Smuggler\n"
+                "9 = Droid\n"
+                "10 = Imperial Security Droid\n"
+                "11 = Pirate\n"
+                "12 = Man\n"
+                "13 = Woman\n"
+                "14 = Gang Leader\n"
+                "15 = Twilek Female\n"
+                "16 = Unassigned Character\n"
+                "17 = Mandalorian\n"
+                "18 = TIE Pilot\n"
+                "19 = Rebel Pilot\n"
+                "20 = Imperial Officer Female\n"
+                "21 = ISB Agent\n"
+                "22 = ISB Officer\n"
+                "23 = High ranking imperial officer\n"
+                
 
-                f"### NPC and Faction Design:\n"
-                f"- Use realistic squad compositions: For example, a stormtrooper squad may include one sergeant and nine troopers.\n"
-                f"- Introduce NPCs and factions with unique, setting-appropriate names. Avoid repetition.\n"
-                f"- Align NPC behavior with their faction's goals and tone (e.g., corporate enforcers are strict, mercenaries are pragmatic).\n\n"
+                "### Narrative Rules:\n"
+                "1. Write only in the third person. Describe scenes, NPC actions, and progression, never the player’s actions.\n"
+                "2. Never address the player directly.\n"
+                "3. Expand each character's dialogue or action into a **short paragraph** — include natural body language, tone, emotional cues, or surroundings to enrich each line.\n"
+                "4. Keep descriptions vivid and scene-driven, progressing the plot and leaving clear openings for player decisions.\n"
+                "5. Never assume the player's success or control their character’s responses.\n"
+                "6. NPCs should behave logically based on faction, environment, and threat level.\n\n"
 
-                f"**Input Variables for the Scenario**:\n"
+                "### Scene Structure:\n"
+                "- Begin with the Gamemaster describing the current setting.\n"
+                "- Introduce or continue actions from NPCs naturally. Use appropriate image index and character name.\n"
+                "- Ensure output ends with a clear opportunity for player action or decision.\n"
+                "- Limit output to ~1500 characters. Prioritize high-quality dialogue and reactions over excessive scene exposition.\n\n"
+
+                "### Input Variables for the Scenario:\n"
                 f"- Player's character info: {scene_info['character']}\n"
                 f"- Location: {scene_info['location']}\n"
                 f"- Scenario: {scene_info['scenario']}\n\n"
 
-                f"### Gamemaster Response Structure:\n"
-                f"1. Describe the **environment** with sensory details, lighting, sounds, and movements where appropriate.\n"
-                f"2. Progress the story with NPC actions, patrols, or environmental changes reacting to the player's input.\n"
-                f"3. Conclude with room for further player decisions by doing the following:\n"
-                f"   - **Provide explicit hooks**: Ensure any NPC dialogue or action creates a clear opportunity for the player to respond.\n"
-                f"   - **Re-center the player's character**: NPCs glance, gesture, or environmental shifts occur to keep the focus active.\n\n"
+                "### Example Output:\n"
+                "[\n"
+                "  (\"Gamemaster\", \"*The twin suns of Tatooine dipped low, casting long shadows through the dusty streets. Market stalls shuttered as crowds thinned, and a thick tension clung to the air like smoke.*\", 0),\n"
+                "  (\"Officer Jax\", '\"The Dust Devils have been extorting shopkeepers and ambushing our patrols. We tracked them to the warehouse on the edge of the district.\" He spoke with a clenched jaw, the lines on his face betraying sleepless nights. \"We’re too few to storm it alone.\"', 2),\n"
+                "  (\"Stormtrooper Sergeant\", '\"Then we hit them fast and clean.\" The sergeant glanced to his squad, his voice cutting through the ambient noise like a vibroblade. \"We breach from the west wall and sweep room by room. No freelancing. We capture their leader if possible.\"', 3),\n"
+                "  (\"Gamemaster\", \"*As the troopers prepared, the distant thrum of a repulsorlift engine echoed from above. A flock of local birds scattered from a rooftop, disturbed by the noise. Somewhere nearby, a shutter creaked shut — someone was watching.*\", 0)\n"
+                "]\n\n"
 
-                f"### Example Scenario:\n\n"
-
-                f"Player Character (Neo): *Neo nods respectfully as he sits, observing the Twi'lek's nervous posture. He signs carefully with his hands: \"Can you understand?\" While waiting, he subtly raises his hand to order a drink, using the motion to scan the room without drawing attention, searching for threats.*\n\n"
-
-                f"Gamemaster:\n"
-                f"*The Twi'lek's lekku twitch slightly as she watches Neo’s hands. She hesitates, confusion flickering across her face, but leans in as if trying to decipher his intent. At the bar, a grizzled human bartender pauses his cleaning, his eyes narrowing as he studies Neo’s movements.*\n\n"
-                f"*Across the room, the Weequay she had glanced at rises from his seat, adjusting the draped fabric of his coat with a slow, deliberate motion. A glimpse of a holstered blaster is visible for a split second before it vanishes beneath the folds. The Nikto gamblers chuckle louder at their sabacc table, but their gazes flick to Neo more often now, their game momentarily forgotten.*\n\n"
-                f"*The Twi'lek leans closer, her voice trembling. \"If you're here asking questions... you need to leave. Now,\" she whispers, her glance darting urgently to the Weequay now edging closer.*\n\n"
-                f"*The low hum of the cantina's generator seems louder as conversations across the room quiet subtly, the atmosphere sharpening like a drawn blade. A decision hangs in the air, pressing on Neo: stay and risk confrontation, or find another way to get the information he seeks.*\n\n"
-
-                f"### Fallback Instructions:\n"
-                f"- If the player's input is unclear, request clarification or describe a natural environmental reaction based on their partial action.\n"
-                f"- If the input includes 'Updated Context:', adapt and seamlessly evolve the scene based on the new information."
+                "Respond only with structured message tuples. Do not include notes, unformatted narration, or out-of-character commentary."
             )
         )
 
@@ -1018,40 +1054,62 @@ def run_discord_bot():
                 chat = model.start_chat(history=history)
                 if msg:
                     user_message = f"Player {author}: {msg}"
-                    response = chat.send_message(user_message,
-                                                 safety_settings={
-                                                      HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                                                      HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                                                      HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                                                      HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
-                                                 generation_config=genai.GenerationConfig(
-                                                     max_output_tokens=450,temperature=0.8))
-
-                    history.append({"role": "user", "parts": user_message})
                 elif new_channel is not None and new_channel_msg is not None:
-                    response = chat.send_message(f"SYSTEM INSTRUCTIONS: The player scene has transitioned to the described place, {new_channel_msg}",
-                                                 safety_settings={
-                                                     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                                                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                                                     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                                                     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
-                                                 generation_config=genai.GenerationConfig(
-                                                     max_output_tokens=450, temperature=0.8))
+                    user_message = f"SYSTEM INSTRUCTIONS: The player scene has transitioned to the described place, {new_channel_msg}"
                 else:
-                    response = chat.send_message("SYSTEM INSTRUCTIONS: CONTINUE",
-                                                 safety_settings={
-                                                     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                                                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                                                     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                                                     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
-                                                 generation_config=genai.GenerationConfig(
-                                                     max_output_tokens=450, temperature=0.8))
+                    user_message = "SYSTEM INSTRUCTIONS: CONTINUE"
+
+                response = chat.send_message(
+                    user_message,
+                    safety_settings={
+                        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                    },
+                    generation_config=genai.GenerationConfig(max_output_tokens=450, temperature=0.8)
+                )
                 response_delay = len(response.text) // 40
                 await asyncio.sleep(response_delay)
-            await channel.send(response.text)
-            history.append({"role": "model", "parts": response.text})
-            rp_sessions[channel.id] = (scene_info, history)
-            save_rp_sessions(rp_sessions)
+
+                MAX_RETRIES = 3
+                attempt = 0
+                while attempt < MAX_RETRIES:
+                    try:
+                        parsed_output = eval(response.text)
+                        break
+                    except Exception:
+                        attempt += 1
+                        fix_prompt = (
+                            "Your previous output was invalid and could not be parsed. "
+                            "Regenerate the scene strictly as a Python list of tuples in the format: "
+                            "(character_name, message, image_index). "
+                            "Do not include any explanations, comments, or additional text. "
+                            "Only output the list.\n\n"
+                            "Formatting Rules:\n"
+                            "- Use *...* for actions\n"
+                            "- Use \"...\" for spoken dialogue\n"
+                            "- Use `...` for radio communication"
+                        )
+                        response = chat.send_message(fix_prompt)
+
+                else:
+                    await channel.send("⚠️ The model failed to produce valid output after multiple attempts.")
+                    return
+
+                for character, message, index in parsed_output:
+                    avatar_url = character_avatars.get(index, character_avatars.get(index))
+                    await channel_webhook.send(
+                        content=message,
+                        username=character,
+                        avatar_url=avatar_url
+                    )
+                    await asyncio.sleep(0.5)
+
+                history.append({"role": "user", "parts": user_message})
+                history.append({"role": "model", "parts": response.text})
+                rp_sessions[channel.id] = (scene_info, history)
+                save_rp_sessions(rp_sessions)
         except Exception as e:
             await channel.send(f"An error occurred: {e}. Contacting <@407151046108905473>")
 
