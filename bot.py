@@ -700,6 +700,7 @@ def run_discord_bot():
                 await message.channel.send(embed=embed)
                 await bump_reminder(message.channel)
 
+
     async def process_oc_submission(message):
         if message.channel.id == 991828501466464296:
             if "approved" in message.content.lower() or "accepted" in message.content.lower():
@@ -708,6 +709,7 @@ def run_discord_bot():
                     user = await guild.get_user_balance(message.author.id)
                     await user.update(bank=+300)
                 await message.add_reaction("✅")
+
 
     def get_nochat_channels():
         try:
@@ -718,6 +720,7 @@ def run_discord_bot():
             with open('nochat_channels.pk1', 'wb') as dbfile:
                 pickle.dump(no_chat_channels, dbfile)
         return no_chat_channels
+
 
     @bot.event
     async def on_message(message):
@@ -748,6 +751,7 @@ def run_discord_bot():
                 await ctx.invoke(bot.get_command("gamemaster_chat"), author=message.author.display_name,
                                               msg=message.content)
         await bot.process_commands(message)
+
 
     async def chat(ctx, prompt: str):
         try:
@@ -808,7 +812,6 @@ def run_discord_bot():
             await ctx.send(f"An error occurred: {e}")
 
 
-
     class FakeCtx:
         def __init__(self, channel):
             self.channel = channel
@@ -820,6 +823,7 @@ def run_discord_bot():
         async def send(self, content):
             return await self.channel.send(content)
 
+
     @bot.event
     async def on_member_join(member):
         channel = bot.get_channel(1099899000729128960)
@@ -829,6 +833,7 @@ def run_discord_bot():
                       f"Also let them know that if they have any questions, they can mention or reply to you, or ask any of the staff."
                       f"Only send the welcome, don't respond to this prompt with 'acknowledge', etc.")
             await chat(fake_ctx, prompt)
+
 
     @bot.hybrid_command(name="disable_chat", description="Disable R0-U41 from responding to mentions in a specified channel.")
     @commands.has_any_role("Owner", "Server Administrator")
@@ -884,15 +889,30 @@ def run_discord_bot():
             rp_sessions = {}
         return rp_sessions
 
+
     def save_rp_sessions(rp_sessions):
         with open("rp_sessions.pk1", "wb") as file:
             pickle.dump(rp_sessions, file)
+
+
+    async def check_and_create_webhook(channel_id):
+        channel = await bot.fetch_channel(channel_id)
+        webhooks = await channel.webhooks()
+        bot_webhook = next((webhook for webhook in webhooks if webhook.user.id == bot.user.id), None)
+        if bot_webhook is None:
+            bot_webhook = await channel.create_webhook(name="R0-U41 Hook")
+        return bot_webhook
+
 
     @bot.hybrid_command(name="gamemaster_start", description="Use the power of AI for your roleplay experience!")
     @app_commands.describe(character="Briefly enter important details about the character (Allegiance, name/s, species, etc.).", location="Enter the location.", scenario="Roleplay Scenario.")
     @commands.has_role("Game Master")
     async def gamemaster_start(ctx, character: str, location: str, scenario: str):
         channel_id = ctx.channel.id
+
+        channel_webhook = await check_and_create_webhook(channel_id)
+
+        # Send reports of GM sessions
         try:
             report_channel = bot.get_channel(991747728298225764)
             await report_channel.send(f"**AI Gamemaster Started On** <#{channel_id}>:\n\nCharacter Info: {character}\n\n"
@@ -911,19 +931,23 @@ def run_discord_bot():
             await ctx.send("Gamemaster mode activated for this channel! Now listening to messages. "
                            "Remember to use '(' when talking out of RP.")
             await ctx.invoke(bot.get_command("gamemaster_chat"), author="Gamemaster",
-                             msg="Set up the scene, environment, or situation for the player")
+                             msg="Set up the scene, environment, or situation for the player",
+                             webhook=channel_webhook)
         else:
             await ctx.send("A scenario is already in progress. Finish the current mission with /gamemaster_stop or change scenario location.")
 
 
     @bot.command()
-    async def gamemaster_chat(ctx, author=None, msg=None, new_channel=None, new_channel_msg=None):
+    async def gamemaster_chat(ctx, author=None, msg=None, new_channel=None, new_channel_msg=None, webhook=None):
         rp_sessions = load_rp_sessions()
 
         if new_channel:
             channel = await bot.fetch_channel(new_channel)
         else:
             channel = ctx.channel
+
+        if webhook is None:
+            channel_webhook = await check_and_create_webhook(ctx.channel.id)
 
         scene_info = rp_sessions[channel.id][0]
         history = rp_sessions[channel.id][1]
@@ -1013,7 +1037,6 @@ def run_discord_bot():
                                                      HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE},
                                                  generation_config=genai.GenerationConfig(
                                                      max_output_tokens=450, temperature=0.8))
-
                 else:
                     response = chat.send_message("SYSTEM INSTRUCTIONS: CONTINUE",
                                                  safety_settings={
@@ -1032,6 +1055,7 @@ def run_discord_bot():
         except Exception as e:
             await channel.send(f"An error occurred: {e}. Contacting <@407151046108905473>")
 
+
     @bot.hybrid_command(name="gamemaster_stop", description="Stop the gamemaster mode.")
     @commands.has_role("Game Master")
     async def gamemaster_stop(ctx):
@@ -1044,6 +1068,7 @@ def run_discord_bot():
         except:
             await ctx.send(
                 "❌ There is no active game master session in this channel!", ephemeral=True)
+
 
     @bot.hybrid_command(name="gamemaster_edit", description="Add context to the gamemaster.")
     @app_commands.describe(
@@ -1063,6 +1088,7 @@ def run_discord_bot():
         else:
             await ctx.send("❌ The game master is not active for this channel.", ephemeral=True)
 
+
     @bot.hybrid_command(name="gamemaster_continue", description="Have the bot continue with another GM Message")
     async def gamemaster_continue(ctx):
         rp_sessions = load_rp_sessions()
@@ -1072,6 +1098,7 @@ def run_discord_bot():
             await gamemaster_chat(ctx)
         else:
             await ctx.send("❌ The game master is not active for this channel.", ephemeral=True)
+
 
     @bot.hybrid_command(name="gamemaster_location", description="Move Game master location")
     @app_commands.describe(channel="Hyperlink of #channel to move to", description="Description of the new location.")
@@ -1090,12 +1117,14 @@ def run_discord_bot():
             if fnew_channel_id in rp_sessions:
                 await ctx.send("❌ A game master session is in progress in that channel. Please select a different one.", ephemeral=True)
             else:
+                channel_webhook = await check_and_create_webhook(fnew_channel_id)
                 rp_sessions[fnew_channel_id] = rp_sessions.pop(current_channel_id)
                 save_rp_sessions(rp_sessions)
                 await ctx.send(f"✅ Location changed to <#{fnew_channel_id}>", ephemeral=True)
-                await gamemaster_chat(ctx, new_channel=fnew_channel_id, new_channel_msg=description)
+                await gamemaster_chat(ctx, new_channel=fnew_channel_id, new_channel_msg=description, webhook=channel_webhook)
         else:
             await ctx.send("❌ There is no active game master session in this channel.", ephemeral=True)
+
 
     @bot.tree.command(name="gamemaster_sessions",
                       description="Show all Game Master sessions in progress")
@@ -1113,6 +1142,7 @@ def run_discord_bot():
         )
         embed.set_footer(text="Here are the ongoing Game Master sessions. To end a session, use /gamemaster_stop in the channel!")
         await interaction.response.send_message(embed=embed)
+
 
     async def news_report():
         model = genai.GenerativeModel("models/gemini-2.0-flash")
@@ -1175,5 +1205,6 @@ def run_discord_bot():
             async with session.post(URL, json=webhook_data) as response:
                 if response.status != 204:
                     print(f'Failed to send embed: {response.status}')
+
 
     bot.run(os.getenv('TOKEN'))
