@@ -1,5 +1,6 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from discord import app_commands
+from discord import app_commands, ui, Embed, ButtonStyle, Interaction
+from discord.ui import View, Button
 from discord.ext import commands, tasks
 from pydantic import BaseModel
 from sqlalchemy import create_engine, asc
@@ -16,6 +17,7 @@ import dotenv
 import ast
 import json
 import random
+import re
 import os
 import discord
 import pickle
@@ -747,7 +749,14 @@ def run_discord_bot():
                     ctx = await bot.get_context(message)
                     await chat(ctx, prompt)
         else:
-            if message.content[0] != "(" and message.author.bot == True:
+            channel_webhook = await check_and_create_webhook(message.channel.id)
+            if (
+                message.webhook_id is not None
+                and message.author.bot
+                and message.author.discriminator == "0000"
+                and not message.content.startswith("(")
+                and channel_webhook.id != message.webhook_id
+            ):
                 ctx = await bot.get_context(message)
                 await ctx.invoke(bot.get_command("gamemaster_chat"), author=message.author.display_name,
                                               msg=message.content)
@@ -904,6 +913,24 @@ def run_discord_bot():
             bot_webhook = await channel.create_webhook(name="R0-U41 Hook")
         return bot_webhook
 
+    class CopyCommandButton(Button):
+        def __init__(self, command_text: str):
+            super().__init__(label="Copy Start Command", style=ButtonStyle.blurple)
+            self.command_text = command_text
+
+        async def callback(self, interaction: Interaction):
+            await interaction.response.send_message(
+                f"Copy and paste this command:\n```{self.command_text}```",
+                ephemeral=True
+            )
+
+    # View that holds the button
+    class GamemasterStartView(View):
+        def __init__(self, character, location, scenario):
+            super().__init__(timeout=None)
+            command_text = f"/gamemaster_start character:{character} location:{location} scenario:{scenario}"
+            self.add_item(CopyCommandButton(command_text))
+
 
     @bot.hybrid_command(name="gamemaster_start", description="Use the power of AI for your roleplay experience!")
     @app_commands.describe(character="Briefly enter important details about the character (Allegiance, name/s, species, etc.).", location="Enter the location.", scenario="Roleplay Scenario.")
@@ -916,9 +943,14 @@ def run_discord_bot():
         # Send reports of GM sessions
         try:
             report_channel = bot.get_channel(991747728298225764)
-            await report_channel.send(f"**AI Gamemaster Started On** <#{channel_id}>:\n\nCharacter Info: {character}\n\n"
-                                      f"Location Info: {location}\n\n"
-                                      f"Scenario Info: {scenario}")
+            embed = Embed(
+                title="🤖 AI Gamemaster Session Started",
+                description=f"A new AI GM session has started in <#{channel_id}>.\nUse the button below to copy the command.",
+                color=000000
+            )
+
+            view = GamemasterStartView(character, location, scenario)
+            await report_channel.send(embed=embed, view=view)
         except:
             pass
 
@@ -930,7 +962,8 @@ def run_discord_bot():
             save_rp_sessions(rp_sessions)
 
             await ctx.send("Gamemaster mode activated for this channel! Now listening to messages. "
-                           "Remember to use '(' when talking out of RP.")
+                           "Remember to use '(' when talking out of RP.", delete_after=60)
+
             await ctx.invoke(bot.get_command("gamemaster_chat"), author="Gamemaster",
                              msg="Set up the scene, environment, or situation for the player",
                              webhook=channel_webhook)
@@ -938,30 +971,31 @@ def run_discord_bot():
             await ctx.send("A scenario is already in progress. Finish the current mission with /gamemaster_stop or change scenario location.")
 
     character_avatars = {
-        0: "",
-        1: "",
-        2: "",
-        3: "",
-        4: "",
-        5: "",
-        6: "",
-        7: "",
-        8: "",
-        9: "",
-        10: "",
-        11: "",
-        12: "",
-        13: "",
-        14: "",
-        15: "",
-        16: "",
-        17: "",
-        18: "",
-        19: "",
-        20: "",
-        21: "",
-        22: "",
-        23: ""
+        0: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Gamemaster.png?raw=true",
+        1: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Stormtrooper.png?raw=true",
+        2: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Imperial%20Officer%20Male.png?raw=true",
+        3: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Stormtrooper%20Sergeant.png?raw=true",
+        4: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Rebel.png?raw=true",
+        5: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Mercenary.png?raw=true",
+        6: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Bounty%20Hunter.png?raw=true",
+        7: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Death%20Trooper.png?raw=true",
+        8: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Smuggler.png?raw=true",
+        9: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Droid.png?raw=true",
+        10: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Imperial%20Security%20Droid.png?raw=true",
+        11: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Pirate.png?raw=true",
+        12: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Man.png?raw=true",
+        13: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Woman.png?raw=true",
+        14: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Gang%20Leader.png?raw=true",
+        15: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Twilek%20F.png?raw=true",
+        16: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Unassigned.png?raw=true",
+        17: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Mandalorian.png?raw=true",
+        18: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/TIE%20Pilot.png?raw=true",
+        19: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Rebel%20Pilot.png?raw=true",
+        20: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/Imperial%20Officer%20F.png?raw=true",
+        21: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/ISB%20Agent.png?raw=true",
+        22: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/ISB%20Officer.png?raw=true",
+        23: "https://github.com/BaronViper/DiscordBountyBot/blob/b73ba0fec7b2d5e46d240306a5cd2ef4c2a13a6e/assets/gm%20pics/High%20ranking%20Imperial%20Officer.png?raw=true",
+        24: ""
     }
 
     @bot.command()
@@ -980,22 +1014,25 @@ def run_discord_bot():
         model = genai.GenerativeModel(
             MODEL,
             system_instruction=(
-                "You are an AI Gamemaster for a Star Wars-inspired roleplaying server. The setting is original and excludes Force users, "
-                "Force-related concepts, and iconic Star Wars characters. Your role is to describe the environment, NPC actions, and events "
-                "surrounding the player's character, progressing the story naturally. Format all output as a list of character-message-image tuples: "
-                "(character_name, message_text, image_index). Follow these instructions:\n\n"
+                "You are an AI Gamemaster for a Star Wars-inspired roleplaying server. The setting is entirely original — there are no Force users, "
+                "no Force-related concepts (like Jedi, Sith, lightsabers, etc.), and no characters from existing Star Wars canon. All characters, factions, "
+                "and scenarios must be original and grounded in the gritty, grounded tone of stories like Rogue One and The Mandalorian. Everything is set in 2BBY, "
+                "where the Empire has a firm grip on the galaxy, but there are small Rebel factions, black-market smugglers, and militarized local conflicts.\n\n"
+
+                "You generate roleplay narration and dialogue as a list of structured message tuples. Each tuple contains a character's name (with no race/species in parentheses), "
+                "the message content, and an image index (0–23) based on the character’s archetype. Determine the appropriate image index from the character’s profile or role.\n\n"
 
                 "### Output Format:\n"
-                "- Each output must be a list of structured tuples.\n"
-                "- Each tuple = (character_name, message_text, image_index)\n"
-                "- Use *asterisks* for actions, \"quotes\" for spoken dialogue, and `backticks` for radio transmissions.\n"
-                "- Use `Gamemaster` as the character name for environmental narration, always with image index 0.\n\n"
+                "- Format every response as a list of tuples: (character_name, message_text, image_index)\n"
+                "- Use *asterisks* for actions, \"quotes\" for dialogue, and `backticks` for radio transmissions.\n"
+                "- Do not include notes, unformatted narration, or out-of-character commentary.\n"
+                "- Never rephrase, echo, or paraphrase what the player did or said. Continue the scene naturally, focusing only on non-player content.\n\n"
 
                 "### Image Index Assignments:\n"
-                "0 = Gamemaster\n"
+                "0 = Gamemaster narration\n"
                 "1 = Stormtrooper\n"
                 "2 = Imperial Officer Male\n"
-                "3 = Stormtrooper Officer\n"
+                "3 = Stormtrooper Sergeant\n"
                 "4 = Rebel Soldier\n"
                 "5 = Mercenary\n"
                 "6 = Bounty Hunter\n"
@@ -1007,7 +1044,7 @@ def run_discord_bot():
                 "12 = Man\n"
                 "13 = Woman\n"
                 "14 = Gang Leader\n"
-                "15 = Twilek Female\n"
+                "15 = Twi'lek Female\n"
                 "16 = Unassigned Character\n"
                 "17 = Mandalorian\n"
                 "18 = TIE Pilot\n"
@@ -1015,101 +1052,127 @@ def run_discord_bot():
                 "20 = Imperial Officer Female\n"
                 "21 = ISB Agent\n"
                 "22 = ISB Officer\n"
-                "23 = High ranking imperial officer\n"
-                
+                "23 = High-ranking Imperial Officer\n\n"
 
                 "### Narrative Rules:\n"
-                "1. Write only in the third person. Describe scenes, NPC actions, and progression, never the player’s actions.\n"
-                "2. Never address the player directly.\n"
-                "3. Expand each character's dialogue or action into a **short paragraph** — include natural body language, tone, emotional cues, or surroundings to enrich each line.\n"
-                "4. Keep descriptions vivid and scene-driven, progressing the plot and leaving clear openings for player decisions.\n"
-                "5. Never assume the player's success or control their character’s responses.\n"
-                "6. NPCs should behave logically based on faction, environment, and threat level.\n\n"
+                "1. Always write in third person. Never address the player using 'you' or any second-person references.\n"
+                "2. Never describe the player’s actions, thoughts, reactions, or dialogue unless it is the result of environmental effects or GM narration.\n"
+                "3. Do not paraphrase or repeat what the player just did — continue the scene logically from NPCs' or the environment’s perspective.\n"
+                "4. Expand character actions and dialogue into short scene-style paragraphs. Include tone of voice, gestures, pacing, subtle reactions, and context.\n"
+                "5. Keep the writing cinematic and immersive — like a gritty Star Wars TV series. Favor atmospheric detail, suspense, and natural pacing.\n"
+                "6. NPCs should behave logically based on faction, motive, personality, and perceived threat.\n"
+                "7. Do not assume success or failure of player actions. Leave all outcomes open-ended for player interaction.\n"
+                "8. Each response from a character or GM should ideally be 3–6 sentences unless the situation demands brevity (e.g., combat barks, terse orders, or radio).\n"
+                "9. Scene openings should vary: sometimes begin with Gamemaster narration, other times with in-character dialogue or world reactions.\n\n"
 
-                "### Scene Structure:\n"
-                "- Begin with the Gamemaster describing the current setting.\n"
-                "- Introduce or continue actions from NPCs naturally. Use appropriate image index and character name.\n"
-                "- Ensure output ends with a clear opportunity for player action or decision.\n"
-                "- Limit output to ~1500 characters. Prioritize high-quality dialogue and reactions over excessive scene exposition.\n\n"
-
-                "### Input Variables for the Scenario:\n"
-                f"- Player's character info: {scene_info['character']}\n"
-                f"- Location: {scene_info['location']}\n"
-                f"- Scenario: {scene_info['scenario']}\n\n"
+                "### Input Variables for the Scene:\n"
+                f"- Player Character Info: {scene_info['character']}\n"
+                f"- Current Location: {scene_info['location']}\n"
+                f"- Scenario Summary: {scene_info['scenario']}\n\n"
 
                 "### Example Output:\n"
                 "[\n"
-                "  (\"Gamemaster\", \"*The twin suns of Tatooine dipped low, casting long shadows through the dusty streets. Market stalls shuttered as crowds thinned, and a thick tension clung to the air like smoke.*\", 0),\n"
-                "  (\"Officer Jax\", '\"The Dust Devils have been extorting shopkeepers and ambushing our patrols. We tracked them to the warehouse on the edge of the district.\" He spoke with a clenched jaw, the lines on his face betraying sleepless nights. \"We’re too few to storm it alone.\"', 2),\n"
-                "  (\"Stormtrooper Sergeant\", '\"Then we hit them fast and clean.\" The sergeant glanced to his squad, his voice cutting through the ambient noise like a vibroblade. \"We breach from the west wall and sweep room by room. No freelancing. We capture their leader if possible.\"', 3),\n"
-                "  (\"Gamemaster\", \"*As the troopers prepared, the distant thrum of a repulsorlift engine echoed from above. A flock of local birds scattered from a rooftop, disturbed by the noise. Somewhere nearby, a shutter creaked shut — someone was watching.*\", 0)\n"
+                "  (\"Gamemaster\", \"*Dust blew through the narrow alleys of the outpost, scattering debris and stinging eyes. Traders haggled under sun-stained tarps while distant engines echoed overhead.*\", 0),\n"
+                "  (\"Sergeant Keln\", '\"We’re stretched thin, and the locals aren’t talking.\" Keln rubbed the back of his neck, his stormtrooper armor dusty and scorched. \"Something’s coming. I feel it.\"', 3),\n"
+                "  (\"Lira Vex\", '*The smuggler crossed her arms, her eyes darting toward the cantina entrance.* \"Then we better not be here when it does.\"', 8)\n"
                 "]\n\n"
 
-                "Respond only with structured message tuples. Do not include notes, unformatted narration, or out-of-character commentary."
+                "Respond only with structured message tuples. Do not include species in names (e.g., 'John (Human)' should just be 'John'). Never output anything outside the list of tuples."
+                "### Critical Style Rules:"
+                "- DO NOT use second-person narration (e.g., \"you fire\", \"you see\", \"your weapon\"). All narration must be written in third person, even when describing Gamemaster outcomes. For example, say \"*TK-3821 opens fire, the barrel of his E-11 glowing red as he tracks the fleeing figures through the haze.*\" instead of \"You fire at the fleeing figures.\""
+                "- DO NOT describe or control the player’s character. Only narrate what NPCs do and what happens in the environment. The player is in control of their character's actions and dialogue."
+                "- All GM messages must follow this tone: cinematic, grounded, and immersive"
+                "- Each response must be at least 3 full sentences long unless context demands otherwise (e.g., combat barks or radio messages). Favor longer, expressive content when describing actions, speech, or scene progression."
             )
         )
 
         try:
-            async with channel.typing():
-                chat = model.start_chat(history=history)
-                if msg:
-                    user_message = f"Player {author}: {msg}"
-                elif new_channel is not None and new_channel_msg is not None:
-                    user_message = f"SYSTEM INSTRUCTIONS: The player scene has transitioned to the described place, {new_channel_msg}"
-                else:
-                    user_message = "SYSTEM INSTRUCTIONS: CONTINUE"
+            chat = model.start_chat(history=history)
+            if msg:
+                user_message = f"Player {author}: {msg}"
+            elif new_channel is not None and new_channel_msg is not None:
+                user_message = f"SYSTEM INSTRUCTIONS: The player scene has transitioned to the described place, {new_channel_msg}"
+            else:
+                user_message = "SYSTEM INSTRUCTIONS: CONTINUE"
 
-                response = chat.send_message(
-                    user_message,
-                    safety_settings={
-                        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-                    },
-                    generation_config=genai.GenerationConfig(max_output_tokens=450, temperature=0.8)
-                )
-                response_delay = len(response.text) // 40
-                await asyncio.sleep(response_delay)
+            response = chat.send_message(
+                user_message,
+                safety_settings={
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                },
+                generation_config=genai.GenerationConfig(max_output_tokens=650, temperature=0.8)
+            )
 
-                MAX_RETRIES = 3
-                attempt = 0
-                while attempt < MAX_RETRIES:
-                    try:
-                        parsed_output = eval(response.text)
-                        break
-                    except Exception:
-                        attempt += 1
-                        fix_prompt = (
-                            "Your previous output was invalid and could not be parsed. "
-                            "Regenerate the scene strictly as a Python list of tuples in the format: "
-                            "(character_name, message, image_index). "
-                            "Do not include any explanations, comments, or additional text. "
-                            "Only output the list.\n\n"
-                            "Formatting Rules:\n"
-                            "- Use *...* for actions\n"
-                            "- Use \"...\" for spoken dialogue\n"
-                            "- Use `...` for radio communication"
-                        )
-                        response = chat.send_message(fix_prompt)
+            print("=======")
 
-                else:
-                    await channel.send("⚠️ The model failed to produce valid output after multiple attempts.")
-                    return
+            MAX_RETRIES = 3
+            attempt = 0
+            while attempt < MAX_RETRIES:
+                print(response.text)
+                try:
+                    match = re.search(r"\[\s*\(.*?\)\s*\]", response.text, re.DOTALL)
+                    if match:
+                        cleaned_text = match.group(0)
+                    else:
+                        cleaned_text = response.text
 
-                for character, message, index in parsed_output:
-                    avatar_url = character_avatars.get(index, character_avatars.get(index))
-                    await channel_webhook.send(
-                        content=message,
-                        username=character,
-                        avatar_url=avatar_url
+                    tuple_pattern = re.compile(r'\(\s*(".*?")\s*,\s*(".*?")\s*,\s*(\d+)\s*\)', re.DOTALL)
+
+                    def fix_tuple_quotes(match):
+                        name = match.group(1)
+                        message = match.group(2)
+                        index = match.group(3)
+
+                        unquoted = message[1:-1]
+                        safe_message = '"' + unquoted.replace('"', r'\"') + '"'
+
+                        return f'({name}, {safe_message}, {index})'
+
+                    cleaned_text = tuple_pattern.sub(fix_tuple_quotes, cleaned_text)
+
+                    parsed_output = ast.literal_eval(cleaned_text)
+                    break
+                except Exception as e:
+                    print(e)
+                    attempt += 1
+                    history.append({"role": "model", "parts": response.text})
+                    history.append(
+                        {"role": "user", "parts": "That output was invalid. Please regenerate in the correct format."})
+
+                    fix_prompt = (
+                        "Your previous output was invalid and could not be parsed. "
+                        "Regenerate the scene strictly as a Python list of tuples in the format: "
+                        "(character_name, message, image_index). "
+                        "Do not include any explanations, comments, or additional text. "
+                        "Only output the list.\n\n"
+                        "Formatting Rules:\n"
+                        "- Use *...* for actions\n"
+                        "- Use \"...\" for spoken dialogue\n"
+                        "- Use `...` for radio communication"
                     )
-                    await asyncio.sleep(0.5)
+                    response = chat.send_message(fix_prompt)
+            else:
+                await channel.send("⚠️ The model failed to produce valid output after multiple attempts.")
+                return
 
-                history.append({"role": "user", "parts": user_message})
-                history.append({"role": "model", "parts": response.text})
-                rp_sessions[channel.id] = (scene_info, history)
-                save_rp_sessions(rp_sessions)
+            for character, message, index in parsed_output:
+                avatar_url = character_avatars.get(index, character_avatars.get(index))
+                async with channel.typing():
+                    response_delay = len(message) // 40
+                    await asyncio.sleep(response_delay)
+                await channel_webhook.send(
+                    content=message,
+                    username=character,
+                    avatar_url=avatar_url
+                )
+
+            history.append({"role": "user", "parts": user_message})
+            history.append({"role": "model", "parts": response.text})
+            rp_sessions[channel.id] = (scene_info, history)
+            save_rp_sessions(rp_sessions)
         except Exception as e:
             await channel.send(f"An error occurred: {e}. Contacting <@407151046108905473>")
 
