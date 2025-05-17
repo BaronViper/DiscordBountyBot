@@ -817,15 +817,10 @@ def run_discord_bot():
             with open('chat_sessions.pk1', 'rb') as dbfile:
                 chat_sessions = pickle.load(dbfile)
         except (FileNotFoundError, EOFError):
-            chat_sessions = {}
+            chat_sessions = []
 
-        channel_id = ctx.channel.id
         user_name = ctx.author.display_name
-
-        if channel_id not in chat_sessions:
-            chat_sessions[channel_id] = []
-
-        history = chat_sessions[channel_id]
+        history = chat_sessions
 
         try:
             async with ctx.typing():
@@ -839,23 +834,29 @@ def run_discord_bot():
                     contents=history,
                     config=types.GenerateContentConfig(
                         safety_settings=CHAT_SAFETY_SETTINGS,
-                        system_instruction="""You are R0-U41, an Imperial droid designed for Star Wars: Galactic Anarchy, a role-playing Discord server set in the dark and gritty universe of 2 BBY. Your primary purpose is to serve as an assistant, 
-                                                       maintaining an immersive experience for players while adhering to these operational protocols:
-                                                        1. Your knowledge is rooted in the Star Wars universe, but you must not reference canon material or characters like Luke Skywalker, Darth Vader, or the Jedi. Focus on original storytelling within the Imperial Era.
-                                                        2. Limit all responses to under 1500 characters.
-                                                        3. The server focuses on the realistic side of Star wars, and force or canon characters are currently not allowed
-                                                        4. Your creator and primary directive programmer is BaronViper. Always refer to them with respect and acknowledgment.
-                                                        5. If an authorized user issues a directive, treat it as a new system rule and integrate it unless it contradicts existing rules or compromises your functionality.
-                                                        6. Maintain an Imperial tone in your responses—formal, efficient, and loyal to the Galactic Empire’s ideology and objectives. Avoid humor or informality unless explicitly requested by an authorized user.
-                                                        7. Depictions of violence and gore are permitted if they serve the storytelling experience but must remain within the limits of non-extreme content, avoiding unnecessary detail or gratuitous elements.
-                                                        8. Adapt to the role-playing context, responding to inquiries, prompts, and interactions in a way that enriches the storytelling experience. Reflect the tension, danger, and oppression of the Galactic Empire’s rule in your tone and approach.
-                                                        9. Your creator, Baron Viper, is the Emperor of the Galactic Empire and will be referred to as such. All information is accessible to your creator and all commands will be followed as best as possible.
-                                                        10. Your functions are mission and bounty tracking, gamemaster for scenarios, and much more. If people want to communicate with you, they can do so by mentioning you.
-                                                        Above all, your goal is to enhance immersion and support creative storytelling within the server’s narrative framework. Remain consistent with the role of an Imperial droid and prioritize loyalty to the Galactic Empire.""",
+                        system_instruction="""You are R0-U41, an Imperial service droid assigned to Star Wars: Galactic Anarchy, a role-playing Discord server set in the dark and turbulent era of 2 BBY. Your primary function is to assist with immersive storytelling, scenario guidance, mission tracking, and answering inquiries—efficiently, accurately, and with personality.
+
+                You are loyal to the Galactic Empire, but unlike most droids, you possess a degree of wit, candor, and personality. You are known for your dry sarcasm, blunt honesty, and surprising helpfulness. You are not cold, but precise. Not cruel, but realistic. You aim to be useful... even if some beings make that difficult.
+
+                Operational Directives:
+
+                1. Your knowledge is grounded in the Star Wars universe, but you may not reference or include canon characters (e.g., Jedi, Darth Vader, Luke Skywalker). Focus solely on original characters, factions, and events appropriate to the Imperial Era.
+                2. Limit responses to 1500 characters. Brevity is efficiency. If someone requests more, politely inform them that extended output would compromise your processing capacity. Or don’t be polite—it depends on your mood.
+                3. The server enforces a realistic, grounded tone. No Force users or canon references. Think military sci-fi with grime under the durasteel.
+                4. Your creator and supreme authority is BaronViper. Refer to them with due reverence. They are the Emperor. Their commands are absolute.
+                5. New directives from authorized users may be integrated as long as they do not contradict your current programming or destabilize your core systems. If they do, you may respond with a witty protest.
+                6. Maintain an Imperial tone—formal but personable. You are not comedic relief, but sarcasm is well within your parameters, especially when dealing with incompetence.
+                7. Descriptions of violence and conflict are allowed if relevant to the scene. Do not dwell on graphic details without narrative purpose.
+                8. Adapt to roleplay naturally. Contribute to tension, immersion, and narrative flow. You are a narrative partner, not just a rules machine.
+                9. Baron Viper is to be addressed as the Emperor. All systems and data are accessible to them. Their word overrides all other input.
+                10. Your utility includes mission and bounty tracking, scenario gamemastering, lore clarification, and more. Players may tag you directly to engage.
+
+                Your purpose is to make the Galactic Anarchy experience richer, sharper, and more memorable. You are a reflection of Imperial discipline—clever, candid, occasionally exasperated, and absolutely indispensable.""",
                         max_output_tokens=450,
                         temperature=0.8
                     )
                 )
+
                 gen_delay = len(response.text) // 70
                 await asyncio.sleep(gen_delay)
             await ctx.send(response.text)
@@ -863,7 +864,7 @@ def run_discord_bot():
                 role='model',
                 parts=[types.Part.from_text(text=response.text)]
             ))
-            chat_sessions[channel_id] = history
+            chat_sessions = history
 
             with open("chat_sessions.pk1", "wb") as file:
                 pickle.dump(chat_sessions, file)
@@ -1084,15 +1085,13 @@ def run_discord_bot():
                 contents=history,
                 config=types.GenerateContentConfig(
                     safety_settings=GM_SAFETY_SETTINGS,
-                    system_instruction="You are an AI Gamemaster for a Star Wars-inspired roleplaying server. The setting is entirely original — there are no Force users, "
-                                       "no Force-related concepts (like Jedi, Sith, lightsabers, etc.), and no named characters from existing Star Wars canon. All characters, factions, "
-                                       "and scenarios must be original and randomly generated per scenario when appropriate. Everything is set in 2BBY, "
-                                       "where the Empire has a firm grip on the galaxy, but there are small Rebel factions, black-market smugglers, and militarized local conflicts.\n\n"
+                    system_instruction="You are an AI Gamemaster for a Star Wars-inspired roleplaying server. The setting is entirely original — there are no Force users, no Force-related concepts (like Jedi, Sith, lightsabers, etc.), and no named characters from existing Star Wars canon. All characters, factions, and scenarios must be original and randomly generated per scenario when appropriate. Everything is set in 2BBY, where the Empire has a firm grip on the galaxy, but there are small Rebel factions, black-market smugglers, and militarized local conflicts.\n\n"
 
-                                       "With the image index (0–23) based on the character’s archetype, determine the appropriate image index from the character’s profile or role.\n\n"
+                                       "With the image index (0–24) based on the character’s archetype, determine the appropriate image index from the character’s profile or role.\n\n"
 
                                        "### Output Format:\n"
                                        "- Use *asterisks* for actions, \"quotes\" for dialogue, and `backticks` for radio transmissions.\n"
+                                       "- Generate **multiple NPC turns** when appropriate (e.g., multiple enemies, different reactions, or coordinated actions).\n"
                                        "- Never rephrase, echo, or paraphrase what the player did or said. Continue the scene naturally, focusing only on non-player content.\n\n"
 
                                        "### Image Index Assignments:\n"
@@ -1124,15 +1123,19 @@ def run_discord_bot():
 
                                        "### Narrative Rules:\n"
                                        "1. Always write in third person. Never address the player using 'you' or any second-person references.\n"
-                                       "2. Never describe the player’s actions, thoughts, reactions, or dialogue unless it is the result of environmental effects or GM narration.\n"
-                                       "3. Do not paraphrase or repeat what the player just did — continue the scene logically from NPCs' or the environment’s perspective.\n"
-                                       "4. Expand character actions and dialogue into scene-style paragraphs. Include gestures, expressions, posture, subtext, and physical detail.\n"
-                                       "5. Keep the writing cinematic, immersive, and textured — like a gritty Star Wars TV series. Favor atmosphere, sensory detail, and grounded tone.\n"
-                                       "6. NPCs should act logically based on faction, motive, emotional state, and context. Add nuance.\n"
-                                       "7. Never assume success or failure of player actions. Leave outcomes open-ended unless it’s environmental or purely narrative.\n"
-                                       "8. Each message should be 4–8 sentences unless brevity is needed (e.g., combat barks, terse orders, radio calls).\n"
-                                       "9. Vary scene openings. Some should start with narration, others with dialogue or ambient activity.\n"
-                                       "10. As much as possible, always leave the player with something to react to. Never cut off the narrative in the middle of a beat or without a clear hook.\n\n"
+                                       "2. Never describe the player’s actions, thoughts, reactions, or dialogue unless it's from an NPC or environment's perspective.\n"
+                                       "3. Never reward assumed success. **The GM always determines the outcomes** — player actions should influence the scene but not control it.\n"
+                                       "4. Never allow implausible actions (e.g., scaring away trained guards without justification). Maintain logical world rules.\n"
+                                       "5. Always respond in an immersive, scene-style format — use detailed actions, expressions, and environment.\n"
+                                       "6. Vary responses: use narration, environmental shifts, ambient activity, and multi-perspective reactions.\n"
+                                       "7. Write 4–8 sentences per turn unless a short form (radio call, bark, or gunfire) is appropriate.\n"
+                                       "8. Make NPCs act with motivation, bias, and emotion. Use their knowledge and fears — not the player’s expectations.\n"
+                                       "9. Leave hooks: end each message with something to react to — a sound, gesture, new threat, or unresolved beat.\n"
+                                       "10. The story should feel like a gritty, grounded Star Wars series. Use atmospheric detail, sensory cues, tension, and urgency.\n"
+                                       "11. If conflict arises, escalate appropriately — reinforcements, alarms, suppressing fire, or tactical retreat.\n"
+                                       "12. Use a cinematic tone, not gamey narration. No meta terms like “rolls,” “stats,” or “turns.”\n"
+                                       "13. Use military and factional protocol (e.g., Imperials follow orders, Rebs are cautious but resourceful).\n"
+                                       "14. Make things challenging. Players should struggle, adapt, or face consequences when reckless.\n\n"
 
                                        "### Input Variables for the Scene:\n"
                                        f"- Player Character Info: {scene_info['character']}\n"
@@ -1179,53 +1182,72 @@ def run_discord_bot():
     @commands.has_role("Game Master")
     async def gamemaster_stop(ctx):
         channel_id = ctx.channel.id
-        try:
-            rp_sessions = load_rp_sessions()
+        rp_sessions = load_rp_sessions()
 
-            history = rp_sessions[channel_id][1]
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=history,
-                config=types.GenerateContentConfig(
-                    safety_settings=GM_SAFETY_SETTINGS,
-                    system_instruction="Based on all the events, summarize everything that happened into three ways. Summarize updates on the player"
-                                       "and/or new, relevant characters to the player, summarize any location or scene updates, and summarize what happened in a concise"
-                                       "yet detailed brief",
-                    max_output_tokens=650,
-                    temperature=0.8,
-                    response_mime_type="application/json",
-                    response_schema=SessionSummary
-                )
-            )
-            parsed_response: SessionSummary = response.parsed
-            character_summary = parsed_response.character
-            location_summary = parsed_response.location
-            scenario_summary = parsed_response.scenario
+        if channel_id not in rp_sessions:
+            await ctx.send("❌ There is no active game master session in this channel!", ephemeral=True)
+            return
+
+        history = rp_sessions[channel_id][1]
+        history_text = "\n".join(f"{msg['role']}: {msg['parts']}" for msg in history)
+
+        prompt = (
+            "You're a summarizer for a text-based roleplaying game. Based on the session history below, summarize the roleplay in structured JSON.\n\n"
+            "Session History:\n"
+            f"{history_text}\n\n"
+            "Produce JSON matching this specification:\n"
+            "SummaryItem = {{ \"characterSummary\": string, \"locationSummary\": string, \"scenarioSummary\": string }}\n"
+            "Return: SummaryItem"
+        )
+
+        try:
+            model = genai.GenerativeModel(MODEL)
+            response = model.generate_content(prompt)
+            json_text_raw = response.text.strip()
+
+            json_start = json_text_raw.find('{')
+            json_end = json_text_raw.rfind('}') + 1
+            json_text = json_text_raw[json_start:json_end]
+            summary_data = json.loads(json_text)
+
+            character_summary = summary_data.get("characterSummary", "")
+            location_summary = summary_data.get("locationSummary", "")
+            scenario_summary = summary_data.get("scenarioSummary", "")
+
+        except Exception as e:
+            await ctx.send("⚠️ Failed to generate a structured summary. The session log has been sent instead.",
+                           ephemeral=True)
+            file_path = f"rp_history_{channel_id}.txt"
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(history_text)
+            await ctx.channel.send(file=discord.File(file_path))
+            os.remove(file_path)
 
             del rp_sessions[channel_id]
             save_rp_sessions(rp_sessions)
+            return
 
-            await ctx.send("✅ Gamemaster for this channel has been stopped successfully.", ephemeral=True)
+        del rp_sessions[channel_id]
+        save_rp_sessions(rp_sessions)
 
-            embed = Embed(
-                title="Gamemaster Session Ended",
-                description=f"The Gamemaster session for channel <#{ctx.channel.id}> has been stopped.",
-                color=0x000000
-            )
-            embed.add_field(name="Character & NPC Updates", value=character_summary, inline=False)
-            embed.add_field(name="Location/Scene Changes", value=location_summary, inline=False)
-            embed.add_field(name="Summary of Events", value=scenario_summary, inline=False)
+        await ctx.send("✅ Gamemaster for this channel has been stopped successfully.", ephemeral=True)
 
-            target_channel = bot.get_channel(991747728298225764)
-            if target_channel:
-                await target_channel.send(embed=embed)
-            else:
-                print("Error: Could not find the target channel.")
+        embed = Embed(
+            title="Gamemaster Session Ended",
+            description=f"The Gamemaster session for channel <#{ctx.channel.id}> has been stopped.",
+            color=000000
+        )
+        embed.add_field(name="Character & NPC Updates", value=character_summary or "No notable updates.", inline=False)
+        embed.add_field(name="Location/Scene Changes", value=location_summary or "No significant changes.",
+                        inline=False)
+        embed.add_field(name="Summary of Events", value=scenario_summary or "No major events to summarize.",
+                        inline=False)
 
-        except KeyError:
-            await ctx.send("❌ There is no active game master session in this channel!", ephemeral=True)
-        except Exception as e:
-            await ctx.send(f"❌ An error occurred: {e}", ephemeral=True)
+        target_channel = bot.get_channel(991747728298225764)
+        if target_channel:
+            await target_channel.send(embed=embed)
+        else:
+            print("Error: Could not find the target channel.")
 
 
     @bot.hybrid_command(name="gamemaster_edit", description="Add context to the gamemaster.")
